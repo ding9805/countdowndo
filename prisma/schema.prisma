@@ -1,0 +1,74 @@
+generator client {
+    provider = "prisma-client-js"
+    binaryTargets = ["native", "rhel-openssl-3.0.x"]
+}
+
+datasource db {
+    provider = "postgresql"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  name           String?
+  email          String    @unique
+  hashedPassword    String
+  resetToken        String?
+  resetTokenExpiry  DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  savedLists     SavedList[]
+  activeSession  ActiveSession?
+  completionLogs CompletionLog[]
+}
+
+model SavedList {
+  id        String   @id @default(cuid())
+  name      String
+  tasks     Json     // Array of { name: string, durationSeconds: number }
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Feedback {
+  id        String   @id @default(cuid())
+  category  String   // 'bug' | 'feature' | 'general'
+  message   String
+  email     String?  // optional reply-to email
+  ipHash    String   // hashed IP for rate limiting
+  createdAt DateTime @default(now())
+
+  @@index([ipHash, createdAt])
+}
+
+model CompletionLog {
+  id              String   @id @default(cuid())
+  taskName        String
+  durationSeconds Int
+  color           String?  // TaskColorId: orange, blue, green, purple, pink
+  completedAt     DateTime @default(now())
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completedAt])
+}
+
+model ActiveSession {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tasks               Json     // Full task array with state
+  sessionState        String   // 'running' | 'paused'
+  sessionMode         String   @default("continuous") // 'continuous' | 'sprint'
+  sessionStartMs      Float    // Date.now() when session started/resumed
+  pausedElapsed       Float    // seconds elapsed before last pause
+  sessionTotalSeconds Float    @default(0) // Total session duration envelope (continuous mode)
+  soundPlayed         Json     @default("[]") // array of task IDs whose sound has played
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
