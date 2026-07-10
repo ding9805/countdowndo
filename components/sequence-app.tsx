@@ -1,16 +1,16 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Task, SavedListData, SessionState, SessionMode, TaskOrder, TaskColorId } from '@/lib/types';
+import { Task, BankTask, SessionState, SessionMode, TaskOrder, TaskColorId } from '@/lib/types';
 import { generateId, recalculateCumulativeTimes, formatTime, formatDuration } from '@/lib/timer-utils';
 import { playTimerSound } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { TaskInputPanel } from './task-input-panel';
 import { ActiveSession } from './active-session';
-import { SavedLists } from './saved-lists';
 import { CompletionHistory } from './completion-history';
 import { Dashboard } from './dashboard';
-import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
+import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
+import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3, Archive } from 'lucide-react';
 import { toast } from 'sonner';
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -23,16 +23,16 @@ export function SequenceApp() {
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sessionState, setSessionState] = useState<SessionState>('idle');
-  const [savedLists, setSavedLists] = useState<SavedListData[]>([]);
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
   const [pausedElapsed, setPausedElapsed] = useState<number>(0);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
   const [sessionMode, setSessionMode] = useState<SessionMode>('continuous');
   const [sessionTotalSeconds, setSessionTotalSeconds] = useState<number>(0);
   const [warningDismissed, setWarningDismissed] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<'lists' | 'history' | 'dashboard'>('lists');
+  const [sidebarTab, setSidebarTab] = useState<'history' | 'dashboard'>('history');
   const [taskOrder, setTaskOrder] = useState<TaskOrder>('desc');
   const [planningStartTime, setPlanningStartTime] = useState<string | null>(null);
+  const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const soundPlayedRef = useRef<Set<string>>(new Set());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -63,10 +63,9 @@ export function SequenceApp() {
   }, []);
   const initialLoadDone = useRef(false);
 
-  // Fetch saved lists and active session on mount (only if logged in)
+  // Fetch active session on mount (only if logged in)
   useEffect(() => {
     if (isLoggedIn) {
-      fetchSavedLists();
       loadActiveSession();
     } else {
       initialLoadDone.current = true;
@@ -92,17 +91,6 @@ export function SequenceApp() {
       }
     };
   }, [isLoggedIn, sessionState]);
-
-  const fetchSavedLists = async () => {
-    try {
-      const res = await fetch('/api/saved-lists');
-      if (!res.ok) return;
-      const data = await res.json();
-      setSavedLists(data ?? []);
-    } catch (e: any) {
-      console.error('Failed to fetch saved lists:', e);
-    }
-  };
 
   const loadActiveSession = async () => {
     try {
@@ -561,6 +549,13 @@ export function SequenceApp() {
     });
   };
 
+  const handleAddFromBank = (bankTasks: BankTask[]) => {
+    bankTasks.forEach((bt) => handleAddTask(bt.name, bt.durationSeconds, 'bottom', bt.color));
+    if (bankTasks.length > 0) {
+      toast.success(`Added ${bankTasks.length} task${bankTasks.length !== 1 ? 's' : ''} from bank`);
+    }
+  };
+
   const handleDeleteTask = (taskId: string) => {
     const isActive = sessionState !== 'idle';
 
@@ -712,77 +707,6 @@ export function SequenceApp() {
     }
   };
 
-  const handleSaveList = async (name: string) => {
-    if (!isLoggedIn) {
-      toast.error('Please log in to save task lists');
-      return;
-    }
-    try {
-      const tasksData = (tasks ?? []).map((t: Task) => ({
-        name: t?.name ?? '',
-        durationSeconds: t?.durationSeconds ?? 300,
-        color: t?.color ?? 'orange',
-      }));
-      const res = await fetch('/api/saved-lists', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, tasks: tasksData }),
-      });
-      if (!res.ok) {
-        const err = await res.json();
-        toast.error(err?.error ?? 'Failed to save');
-        return;
-      }
-      toast.success('List saved!');
-      fetchSavedLists();
-    } catch (e: any) {
-      console.error('Save list error:', e);
-      toast.error('Failed to save list');
-    }
-  };
-
-  const handleLoadList = (list: SavedListData) => {
-    const loadedTasks: Task[] = ((list?.tasks as any[]) ?? []).map((t: any) => ({
-      id: generateId(),
-      name: t?.name ?? 'Task',
-      durationSeconds: t?.durationSeconds ?? 300,
-      cumulativeSeconds: 0,
-      isDone: false,
-      doneAt: null,
-      bonusSeconds: 0,
-      color: (t?.color as TaskColorId) ?? 'orange',
-    }));
-    setTasks(recalculateCumulativeTimes(loadedTasks));
-    if (sessionState !== 'idle') {
-      handleStop();
-    }
-    toast.success(`Loaded "${list?.name ?? 'list'}"`);
-  };
-
-  const handleDeleteSavedList = async (id: string) => {
-    try {
-      await fetch(`/api/saved-lists/${id}`, { method: 'DELETE' });
-      toast.success('List deleted');
-      fetchSavedLists();
-    } catch (e: any) {
-      console.error('Delete list error:', e);
-    }
-  };
-
-  const handleRenameSavedList = async (id: string, newName: string) => {
-    try {
-      await fetch(`/api/saved-lists/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: newName }),
-      });
-      toast.success('List renamed');
-      fetchSavedLists();
-    } catch (e: any) {
-      console.error('Rename list error:', e);
-    }
-  };
-
   const isSession = sessionState === 'running' || sessionState === 'paused';
 
   return (
@@ -799,6 +723,14 @@ export function SequenceApp() {
             </h1>
           </div>
           <div className="flex items-center gap-4">
+            <Link
+              href="/tasks"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground bg-secondary/40 hover:bg-secondary/60 px-3 py-1.5 rounded-full transition-colors"
+              title="Task Bank"
+            >
+              <Archive className="w-3.5 h-3.5" />
+              <span className="text-xs font-medium hidden sm:inline">Task Bank</span>
+            </Link>
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/40 px-3 py-1.5 rounded-full">
               <ListChecks className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">{tasks?.length ?? 0} task{(tasks?.length ?? 0) !== 1 ? 's' : ''}</span>
@@ -877,6 +809,7 @@ export function SequenceApp() {
                 onEditTask={handleEditTask}
                 onReorder={handleReorder}
                 onStartSession={handleStartSession}
+                onOpenTaskBank={() => setBankPickerOpen(true)}
               />
             ) : (
               <ActiveSession
@@ -898,6 +831,7 @@ export function SequenceApp() {
                 onDeleteTask={handleDeleteTask}
                 onEditTask={handleEditTask}
                 onReorder={handleReorder}
+                onOpenTaskBank={() => setBankPickerOpen(true)}
               />
             )}
           </div>
@@ -907,17 +841,6 @@ export function SequenceApp() {
             <div className="space-y-4">
               {/* Tab switcher */}
               <div className="flex rounded-xl bg-secondary/30 p-1 border border-border/40 glass-card">
-                <button
-                  onClick={() => setSidebarTab('lists')}
-                  className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                    sidebarTab === 'lists'
-                      ? 'bg-primary/15 text-primary shadow-sm'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40'
-                  }`}
-                >
-                  <ListChecks className="w-3.5 h-3.5" />
-                  Lists
-                </button>
                 <button
                   onClick={() => setSidebarTab('history')}
                   className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
@@ -942,16 +865,7 @@ export function SequenceApp() {
                 </button>
               </div>
 
-              {sidebarTab === 'lists' ? (
-                <SavedLists
-                  savedLists={savedLists}
-                  currentTasks={tasks}
-                  onSaveList={handleSaveList}
-                  onLoadList={handleLoadList}
-                  onDeleteList={handleDeleteSavedList}
-                  onRenameList={handleRenameSavedList}
-                />
-              ) : sidebarTab === 'history' ? (
+              {sidebarTab === 'history' ? (
                 <CompletionHistory isLoggedIn={isLoggedIn} />
               ) : (
                 <Dashboard isLoggedIn={isLoggedIn} />
@@ -968,6 +882,13 @@ export function SequenceApp() {
           </div>
         )}
       </div>
+
+      <TaskBankPickerDialog
+        open={bankPickerOpen}
+        onOpenChange={setBankPickerOpen}
+        onConfirm={handleAddFromBank}
+        confirmLabel={isSession ? 'Add to Session' : 'Add Tasks'}
+      />
     </div>
   );
 }

@@ -19,19 +19,36 @@ model User {
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
 
-  savedLists     SavedList[]
-  activeSession  ActiveSession?
-  completionLogs CompletionLog[]
+  activeSession     ActiveSession?
+  completionLogs    CompletionLog[]
+  bankTasks         BankTask[]
+  bankTaskTemplates BankTaskTemplate[]
 }
 
-model SavedList {
-  id        String   @id @default(cuid())
-  name      String
-  tasks     Json     // Array of { name: string, durationSeconds: number }
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+model BankTask {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String
+  durationSeconds Int
+  color           String   // TaskColorId: orange, blue, green, purple, pink
+  tags            String[] @default([])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model BankTaskTemplate {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String   // template label, e.g. "Household Chore"
+  durationSeconds Int
+  color           String
+  tags            String[] @default([])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([userId])
 }

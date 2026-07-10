@@ -40,6 +40,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Verify the session's user still exists to prevent foreign key violations
+    // (e.g. a stale session whose account was deleted).
+    const userExists = await prisma.user.findUnique({ where: { id: session.user.id }, select: { id: true } });
+    if (!userExists) {
+      return NextResponse.json({ error: 'Your session is no longer valid. Please log in again.' }, { status: 401 });
+    }
+
     const { tasks } = await req.json();
     if (!Array.isArray(tasks) || tasks.length === 0) {
       return NextResponse.json({ error: 'No tasks provided' }, { status: 400 });

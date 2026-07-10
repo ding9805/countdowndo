@@ -20,10 +20,22 @@ export interface Task {
   color: TaskColorId;
 }
 
-export interface SavedListData {
+export interface BankTask {
   id: string;
   name: string;
-  tasks: { name: string; durationSeconds: number; color?: string }[];
+  durationSeconds: number;
+  color: TaskColorId;
+  tags: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BankTaskTemplate {
+  id: string;
+  name: string;
+  durationSeconds: number;
+  color: TaskColorId;
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }

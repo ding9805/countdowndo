@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, getTaskColorHex } from '@/lib/types';
 import { ColorPicker } from './color-picker';
 import { formatTime, formatDuration } from '@/lib/timer-utils';
-import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, Zap, ArrowUpDown, Trash2 } from 'lucide-react';
+import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, Zap, ArrowUpDown, Trash2, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TimePicker } from './time-picker';
@@ -29,6 +29,7 @@ interface ActiveSessionProps {
   onDeleteTask: (id: string) => void;
   onEditTask: (id: string, name: string, durationSeconds: number, color?: TaskColorId) => void;
   onReorder: (tasks: Task[]) => void;
+  onOpenTaskBank: () => void;
 }
 
 export function ActiveSession({
@@ -50,6 +51,7 @@ export function ActiveSession({
   onDeleteTask,
   onEditTask,
   onReorder,
+  onOpenTaskBank,
 }: ActiveSessionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
@@ -236,6 +238,15 @@ export function ActiveSession({
               className="text-primary hover:bg-primary/10"
             >
               <Plus className="w-4 h-4 mr-1" /> Add Task
+            </Button>
+            <Button
+              onClick={onOpenTaskBank}
+              size="sm"
+              variant="ghost"
+              className="text-muted-foreground hover:text-foreground"
+              title="Add tasks from your Task Bank"
+            >
+              <Archive className="w-4 h-4 mr-1" /> From Task Bank
             </Button>
           </div>
         </div>

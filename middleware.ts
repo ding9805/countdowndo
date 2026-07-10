@@ -8,7 +8,7 @@ export default withAuth({
 
 export const config = {
   matcher: [
-    '/api/saved-lists/:path*',
+    '/api/task-bank/:path*',
     '/api/active-session/:path*',
     '/api/completion-log/:path*',
   ],

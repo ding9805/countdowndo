@@ -6,7 +6,7 @@ import { ColorPicker } from './color-picker';
 import { formatDuration } from '@/lib/timer-utils';
 import { TimePicker } from './time-picker';
 import { StartTimePicker } from './start-time-picker';
-import { Plus, Play, GripVertical, X, Pencil, Clock, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Zap, Infinity, ArrowUpDown } from 'lucide-react';
+import { Plus, Play, GripVertical, X, Pencil, Clock, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Zap, Infinity, ArrowUpDown, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,6 +24,7 @@ interface TaskInputPanelProps {
   onEditTask: (id: string, name: string, durationSeconds: number, color?: TaskColorId) => void;
   onReorder: (tasks: Task[]) => void;
   onStartSession: () => void;
+  onOpenTaskBank: () => void;
 }
 
 export function TaskInputPanel({
@@ -39,6 +40,7 @@ export function TaskInputPanel({
   onEditTask,
   onReorder,
   onStartSession,
+  onOpenTaskBank,
 }: TaskInputPanelProps) {
   const [taskName, setTaskName] = useState('');
   const [duration, setDuration] = useState(300); // 5 min default
@@ -227,6 +229,15 @@ export function TaskInputPanel({
                       >
                         <Plus className="w-4 h-4 mr-1" />
                         Add to Top
+                      </Button>
+                      <Button
+                        onClick={onOpenTaskBank}
+                        variant="ghost"
+                        className="text-muted-foreground hover:text-foreground rounded-xl"
+                        title="Add tasks from your Task Bank"
+                      >
+                        <Archive className="w-4 h-4 mr-1" />
+                        From Task Bank
                       </Button>
                     </div>
                   </div>
