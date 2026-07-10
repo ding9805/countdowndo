@@ -6,6 +6,7 @@ import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler'
 import { GoogleAnalytics } from '@/components/google-analytics'
 import { Providers } from '@/components/providers'
 import { FeedbackButton } from '@/components/feedback-button'
+import { DomainNoticeBanner } from '@/components/domain-notice-banner'
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-sans' })
 const jakartaSans = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-display' })
@@ -38,6 +39,7 @@ export default function RootLayout({
       <head></head>
       <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans bg-background text-foreground`}>
         <Providers>
+          <DomainNoticeBanner />
           <ThemeProvider
             attribute="class"
             defaultTheme="dark"
