@@ -194,43 +194,43 @@ export function ActiveSession({
 
       {/* Session controls */}
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Button
-              onClick={onPause}
-              variant="outline"
-              className="border-primary text-primary hover:bg-primary/10"
-            >
-              {sessionState === 'paused' ? (
-                <><Play className="w-4 h-4 mr-2" /> Resume</>
-              ) : (
-                <><Pause className="w-4 h-4 mr-2" /> Pause All</>
-              )}
-            </Button>
-            <Button
-              onClick={onStop}
-              variant="outline"
-              className="border-destructive text-destructive hover:bg-destructive/10"
-            >
-              <Square className="w-4 h-4 mr-2" /> Stop Session
-            </Button>
-            {(tasks?.length ?? 0) > 0 && (
-              <button
-                onClick={() => setShowClearConfirm(true)}
-                className="text-xs px-3 py-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
-              >
-                Clear all
-              </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button
+            onClick={onPause}
+            variant="outline"
+            className="border-primary text-primary hover:bg-primary/10"
+          >
+            {sessionState === 'paused' ? (
+              <><Play className="w-4 h-4 mr-2" /> Resume</>
+            ) : (
+              <><Pause className="w-4 h-4 mr-2" /> Pause All</>
             )}
-          </div>
+          </Button>
+          <Button
+            onClick={onStop}
+            variant="outline"
+            className="border-destructive text-destructive hover:bg-destructive/10"
+          >
+            <Square className="w-4 h-4 mr-2" /> Stop Session
+          </Button>
+          {(tasks?.length ?? 0) > 0 && (
+            <button
+              onClick={() => setShowClearConfirm(true)}
+              className="text-xs px-3 py-2 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
 
-          <div className="flex items-center gap-3">
-            <span className="font-mono text-sm text-muted-foreground">
-              Elapsed: {formatTime(elapsedSeconds ?? 0)}
-            </span>
-            <span className="text-sm text-primary font-medium">
-              Session ends: {sessionEndTimeStr}
-            </span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <span className="font-mono text-sm text-muted-foreground whitespace-nowrap">
+            Elapsed: {formatTime(elapsedSeconds ?? 0)}
+          </span>
+          <span className="text-sm text-primary font-medium whitespace-nowrap">
+            Session ends: {sessionEndTimeStr}
+          </span>
+          <div className="flex items-center gap-2 flex-wrap sm:ml-auto">
             <Button
               onClick={() => setShowAddForm(!showAddForm)}
               size="sm"
@@ -272,7 +272,7 @@ export function ActiveSession({
               <div className="flex items-center gap-3">
                 <ColorPicker value={newTaskColor} onChange={setNewTaskColor} size="sm" />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <button
                   onClick={() => setShowPicker(!showPicker)}
                   className="flex items-center gap-2 px-3 py-1.5 bg-secondary/50 rounded-lg text-sm hover:bg-secondary transition-colors"

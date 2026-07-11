@@ -197,8 +197,8 @@ export function TaskInputPanel({
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <div className="px-6 pt-1 pb-6">
-                <div className="flex gap-4 items-start">
+              <div className="px-4 sm:px-6 pt-1 pb-6">
+                <div className="flex flex-col sm:flex-row gap-4 sm:items-start">
                   {/* Left: Task name + color picker + add buttons */}
                   <div className="flex-1 flex flex-col gap-3">
                     <Input
@@ -243,7 +243,7 @@ export function TaskInputPanel({
                   </div>
 
                   {/* Right: Time picker scroll wheels */}
-                  <div className="bg-secondary/20 rounded-xl p-3 flex items-center border border-border/30">
+                  <div className="bg-secondary/20 rounded-xl p-3 flex items-center justify-center sm:justify-start border border-border/30">
                     <TimePicker
                       onSelect={(s: number) => setDuration(s)}
                       initialHours={Math.floor((duration ?? 300) / 3600)}

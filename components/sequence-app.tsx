@@ -713,27 +713,27 @@ export function SequenceApp() {
     <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-        <div className="max-w-[1200px] mx-auto px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center glow-primary">
+        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center glow-primary shrink-0">
               <Timer className="w-5 h-5 text-primary-foreground" />
             </div>
-            <h1 className="font-display text-xl font-bold tracking-tight text-foreground">
+            <h1 className="font-display text-lg sm:text-xl font-bold tracking-tight text-foreground">
               CountdownDo
             </h1>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 sm:gap-4 flex-wrap">
             <Link
               href="/tasks"
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground bg-secondary/40 hover:bg-secondary/60 px-3 py-1.5 rounded-full transition-colors"
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground bg-secondary/40 hover:bg-secondary/60 px-2.5 sm:px-3 py-1.5 rounded-full transition-colors"
               title="Task Bank"
             >
               <Archive className="w-3.5 h-3.5" />
               <span className="text-xs font-medium hidden sm:inline">Task Bank</span>
             </Link>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/40 px-3 py-1.5 rounded-full">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/40 px-2.5 sm:px-3 py-1.5 rounded-full">
               <ListChecks className="w-3.5 h-3.5" />
-              <span className="text-xs font-medium">{tasks?.length ?? 0} task{(tasks?.length ?? 0) !== 1 ? 's' : ''}</span>
+              <span className="text-xs font-medium">{tasks?.length ?? 0}<span className="hidden sm:inline"> task{(tasks?.length ?? 0) !== 1 ? 's' : ''}</span></span>
             </div>
             {isLoggedIn ? (
               <div className="flex items-center gap-3">
@@ -751,10 +751,11 @@ export function SequenceApp() {
             ) : (
               <Link
                 href="/login"
-                className="flex items-center gap-2 px-4 py-2 rounded-xl gradient-primary text-primary-foreground hover:opacity-90 transition-all text-sm font-semibold shadow-md"
+                className="flex items-center gap-2 px-2.5 sm:px-4 py-2 rounded-xl gradient-primary text-primary-foreground hover:opacity-90 transition-all text-sm font-semibold shadow-md"
+                title="Log in"
               >
                 <LogIn className="w-4 h-4" />
-                <span>Log in</span>
+                <span className="hidden sm:inline">Log in</span>
               </Link>
             )}
           </div>
