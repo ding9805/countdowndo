@@ -9,7 +9,8 @@ import { TagFilterBar } from './tag-filter-bar';
 import { TaskBankForm } from './task-bank-form';
 import { TemplateManagerDialog } from './template-manager-dialog';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Plus, Sparkles, Archive, LogIn } from 'lucide-react';
+import { Plus, Sparkles, Archive, LogIn } from 'lucide-react';
+import { PageToggle } from '@/components/page-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
@@ -154,27 +155,27 @@ export function TaskBankPage() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-xl border-b border-border/50">
-        <div className="max-w-[1200px] mx-auto px-6 py-3.5 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="p-2 -ml-2 rounded-xl hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors">
-              <ArrowLeft className="w-5 h-5" />
-            </Link>
-            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center glow-primary">
+        <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-3 sm:py-3.5 flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="w-9 h-9 rounded-xl gradient-primary flex items-center justify-center glow-primary shrink-0">
               <Archive className="w-5 h-5 text-primary-foreground" />
             </div>
-            <h1 className="font-display text-xl font-bold tracking-tight text-foreground">Task Bank</h1>
+            <h1 className="font-display text-lg sm:text-xl font-bold tracking-tight text-foreground">Task Bank</h1>
           </div>
-          {isLoggedIn && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setTemplatesOpen(true)}
-              className="border-primary/40 text-primary hover:bg-primary/10"
-            >
-              <Sparkles className="w-4 h-4 mr-1.5" />
-              Templates
-            </Button>
-          )}
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
+            <PageToggle />
+            {isLoggedIn && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setTemplatesOpen(true)}
+                className="border-primary/40 text-primary hover:bg-primary/10"
+              >
+                <Sparkles className="w-4 h-4 mr-1.5" />
+                <span className="hidden sm:inline">Templates</span>
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 

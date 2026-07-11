@@ -7,6 +7,7 @@ import { GoogleAnalytics } from '@/components/google-analytics'
 import { Providers } from '@/components/providers'
 import { FeedbackButton } from '@/components/feedback-button'
 import { DomainNoticeBanner } from '@/components/domain-notice-banner'
+import { PageTransition } from '@/components/page-transition'
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-sans' })
 const jakartaSans = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-display' })
@@ -46,7 +47,7 @@ export default function RootLayout({
             enableSystem={false}
             disableTransitionOnChange
           >
-            {children}
+            <PageTransition>{children}</PageTransition>
             <Toaster />
             <ChunkLoadErrorHandler />
             <FeedbackButton />

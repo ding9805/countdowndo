@@ -10,7 +10,8 @@ import { ActiveSession } from './active-session';
 import { CompletionHistory } from './completion-history';
 import { Dashboard } from './dashboard';
 import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
-import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3, Archive } from 'lucide-react';
+import { PageToggle } from './page-toggle';
+import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
 import { toast } from 'sonner';
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -723,14 +724,7 @@ export function SequenceApp() {
             </h1>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-4 flex-wrap">
-            <Link
-              href="/tasks"
-              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground bg-secondary/40 hover:bg-secondary/60 px-2.5 sm:px-3 py-1.5 rounded-full transition-colors"
-              title="Task Bank"
-            >
-              <Archive className="w-3.5 h-3.5" />
-              <span className="text-xs font-medium hidden sm:inline">Task Bank</span>
-            </Link>
+            <PageToggle />
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/40 px-2.5 sm:px-3 py-1.5 rounded-full">
               <ListChecks className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">{tasks?.length ?? 0}<span className="hidden sm:inline"> task{(tasks?.length ?? 0) !== 1 ? 's' : ''}</span></span>
