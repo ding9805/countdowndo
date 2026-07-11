@@ -345,7 +345,7 @@ export function TaskInputPanel({
                 <button
                   onClick={() => moveTaskToEdge(displayIdx, 'top')}
                   disabled={displayIdx === 0}
-                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                   title="Move to top"
                 >
                   <ChevronsUp className="w-3.5 h-3.5" />
@@ -353,7 +353,7 @@ export function TaskInputPanel({
                 <button
                   onClick={() => moveTask(displayIdx, 'up')}
                   disabled={displayIdx === 0}
-                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                   title="Move up"
                 >
                   <ChevronUp className="w-4 h-4" />
@@ -362,7 +362,7 @@ export function TaskInputPanel({
                 <button
                   onClick={() => moveTask(displayIdx, 'down')}
                   disabled={displayIdx === displayTasks.length - 1}
-                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                   title="Move down"
                 >
                   <ChevronDown className="w-4 h-4" />
@@ -370,7 +370,7 @@ export function TaskInputPanel({
                 <button
                   onClick={() => moveTaskToEdge(displayIdx, 'bottom')}
                   disabled={displayIdx === displayTasks.length - 1}
-                  className="p-0.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
+                  className="p-1.5 rounded hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 disabled:cursor-not-allowed"
                   title="Move to bottom"
                 >
                   <ChevronsDown className="w-3.5 h-3.5" />

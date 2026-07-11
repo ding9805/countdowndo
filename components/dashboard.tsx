@@ -35,6 +35,7 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [rangeDays, setRangeDays] = useState(14);
+  const [selectedDateKey, setSelectedDateKey] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     if (isLoggedIn) {
@@ -134,6 +135,14 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
     return max || 1;
   }, [histogramData]);
 
+  // Tapped/selected day for the value readout — defaults to the most recent day
+  const selectedDay = useMemo(() => {
+    return histogramData.find(d => d.dateKey === selectedDateKey) ?? histogramData[histogramData.length - 1] ?? null;
+  }, [histogramData, selectedDateKey]);
+  const selectedDayTotal = selectedDay
+    ? Object.values(selectedDay.colors).reduce((s, v) => s + v, 0)
+    : 0;
+
   if (loading) {
     return <div className="text-center py-8 text-muted-foreground text-sm">Loading…</div>;
   }
@@ -169,7 +178,7 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
 
       {/* Histogram */}
       <div className="glass-card rounded-xl p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4 text-primary" />
             <span className="text-sm font-medium text-foreground">Hours per day</span>
@@ -178,8 +187,8 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
             {RANGE_OPTIONS.map(opt => (
               <button
                 key={opt.days}
-                onClick={() => setRangeDays(opt.days)}
-                className={`px-2 py-0.5 text-[10px] font-medium rounded-md transition-colors ${
+                onClick={() => { setRangeDays(opt.days); setSelectedDateKey(null); }}
+                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
                   rangeDays === opt.days
                     ? 'bg-primary/20 text-primary'
                     : 'text-muted-foreground hover:text-foreground'
@@ -191,21 +200,31 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
           </div>
         </div>
 
+        {/* Selected day readout — tap a bar to inspect it; defaults to the most recent day */}
+        <p className="text-xs text-muted-foreground mb-3 h-4">
+          {selectedDay && (
+            <>
+              <span className="text-foreground font-medium">{selectedDay.label}</span>: {formatHours(selectedDayTotal)}
+            </>
+          )}
+        </p>
+
         {/* Color legend */}
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mb-3">
+        <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3">
           {TASK_COLORS.map(c => (
-            <span key={c.id} className="flex items-center gap-1 text-[10px] text-muted-foreground">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.hex }} />
+            <span key={c.id} className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.hex }} />
               {c.label}
             </span>
           ))}
         </div>
 
-        {/* Bars */}
-        <div className="flex items-end gap-[2px]" style={{ height: 120 }}>
-          {histogramData.map((day) => {
+        {/* Bars — each is a full-height tap target regardless of visual bar height */}
+        <div className="flex items-stretch gap-[2px]" style={{ height: 120 }}>
+          {histogramData.map((day, i) => {
             const dayTotal = Object.values(day.colors).reduce((s, v) => s + v, 0);
             const barHeight = dayTotal > 0 ? Math.max(4, (dayTotal / maxSeconds) * 110) : 0;
+            const isSelected = selectedDay?.dateKey === day.dateKey;
 
             // Build stacked color segments
             const segments = TASK_COLORS
@@ -216,13 +235,22 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
                 fraction: day.colors[c.id] / dayTotal,
               }));
 
+            // Thin out labels on narrow layouts — cap to roughly 7 regardless of range
+            const showLabel = rangeDays <= 7 || i % Math.ceil(rangeDays / 7) === 0;
+
             return (
-              <div key={day.dateKey} className="flex-1 flex flex-col items-center gap-0.5 min-w-0">
-                {/* Bar */}
+              <button
+                key={day.dateKey}
+                type="button"
+                onClick={() => setSelectedDateKey(day.dateKey)}
+                className="flex-1 min-w-0 flex flex-col justify-end items-center gap-1 pt-2"
+                aria-label={`${day.label}: ${formatHours(dayTotal)}`}
+              >
                 <div
-                  className="w-full rounded-t-sm overflow-hidden flex flex-col-reverse transition-all"
+                  className={`w-full rounded-t-sm overflow-hidden flex flex-col-reverse transition-all ${
+                    isSelected ? 'ring-2 ring-primary/60' : ''
+                  }`}
                   style={{ height: barHeight }}
-                  title={`${day.label}: ${formatHours(dayTotal)}`}
                 >
                   {segments.map(seg => (
                     <div
@@ -231,13 +259,10 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
                     />
                   ))}
                 </div>
-                {/* Label — show every nth depending on range */}
-                {(rangeDays <= 14 || histogramData.indexOf(day) % Math.ceil(rangeDays / 14) === 0) && (
-                  <span className="text-[8px] text-muted-foreground truncate w-full text-center">
-                    {day.label}
-                  </span>
-                )}
-              </div>
+                <span className={`text-[9px] truncate w-full text-center ${isSelected ? 'text-primary font-medium' : 'text-muted-foreground'} ${showLabel ? '' : 'invisible'}`}>
+                  {day.label}
+                </span>
+              </button>
             );
           })}
         </div>

@@ -355,7 +355,7 @@ export function ActiveSession({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); moveTaskToEdge(displayIdx, 'top'); }}
                       disabled={displayIdx === 0}
-                      className="p-0.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+                      className="p-1.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
                       aria-label="Move to top"
                     >
                       <ChevronsUp className="w-3 h-3" />
@@ -364,7 +364,7 @@ export function ActiveSession({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); moveTask(displayIdx, 'up'); }}
                       disabled={displayIdx === 0}
-                      className="p-0.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+                      className="p-1.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
                       aria-label="Move task up"
                     >
                       <ChevronUp className="w-3.5 h-3.5" />
@@ -374,7 +374,7 @@ export function ActiveSession({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); moveTask(displayIdx, 'down'); }}
                       disabled={displayIdx === displayTasks.length - 1}
-                      className="p-0.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+                      className="p-1.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
                       aria-label="Move task down"
                     >
                       <ChevronDown className="w-3.5 h-3.5" />
@@ -383,7 +383,7 @@ export function ActiveSession({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); moveTaskToEdge(displayIdx, 'bottom'); }}
                       disabled={displayIdx === displayTasks.length - 1}
-                      className="p-0.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+                      className="p-1.5 rounded hover:bg-muted transition-colors disabled:opacity-20 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
                       aria-label="Move to bottom"
                     >
                       <ChevronsDown className="w-3 h-3" />
