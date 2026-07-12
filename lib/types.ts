@@ -18,6 +18,10 @@ export interface Task {
   doneAt: number | null; // timestamp when marked done
   bonusSeconds: number; // extra seconds received from early completion of previous tasks
   color: TaskColorId;
+  // The completion-log entry created when this task was marked done, so
+  // un-marking it can retract that entry instead of leaving a duplicate
+  // behind if it's marked done again later.
+  completionLogId?: string | null;
 }
 
 export interface BankTask {

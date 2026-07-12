@@ -366,7 +366,7 @@ export function SequenceApp() {
     setElapsedSeconds(0);
     setSessionState('running');
     const resetTasks = recalculateCumulativeTimes(
-      (tasks ?? []).map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0 } as Task))
+      (tasks ?? []).map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
     );
     // Initialize sessionTotalSeconds with the sum of all task durations
     const totalSeconds = resetTasks.length > 0 ? resetTasks[resetTasks.length - 1].cumulativeSeconds : 0;
@@ -390,8 +390,10 @@ export function SequenceApp() {
     }
   };
 
-  const logCompletedTasks = useCallback(async (completedTasks: Task[]) => {
-    if (completedTasks.length === 0) return;
+  // Logs completed tasks and returns a map of task.id -> completion-log entry id,
+  // so the caller can remember it on the task (enables retraction if un-marked later).
+  const logCompletedTasks = useCallback(async (completedTasks: Task[]): Promise<Record<string, string>> => {
+    if (completedTasks.length === 0) return {};
 
     const payload = completedTasks.map(t => ({
       name: t.name,
@@ -400,13 +402,22 @@ export function SequenceApp() {
       completedAt: t.doneAt ? new Date(t.doneAt).toISOString() : new Date().toISOString(),
     }));
 
+    const idMap: Record<string, string> = {};
+
     if (isLoggedIn) {
       try {
-        await fetch('/api/completion-log', {
+        const res = await fetch('/api/completion-log', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tasks: payload }),
         });
+        if (res.ok) {
+          const data = await res.json();
+          (data.logs ?? []).forEach((log: any, i: number) => {
+            const taskId = completedTasks[i]?.id;
+            if (taskId && log?.id) idMap[taskId] = log.id;
+          });
+        }
       } catch (e) {
         console.error('Failed to log completions:', e);
       }
@@ -415,13 +426,18 @@ export function SequenceApp() {
       try {
         const key = 'countdowndo-completion-history';
         const existing: any[] = JSON.parse(localStorage.getItem(key) || '[]');
-        const newEntries = payload.map((t, i) => ({
-          id: `local-${Date.now()}-${i}`,
-          taskName: t.name,
-          durationSeconds: t.durationSeconds,
-          color: t.color ?? 'orange',
-          completedAt: t.completedAt,
-        }));
+        const newEntries = payload.map((t, i) => {
+          const id = `local-${Date.now()}-${i}`;
+          const taskId = completedTasks[i]?.id;
+          if (taskId) idMap[taskId] = id;
+          return {
+            id,
+            taskName: t.name,
+            durationSeconds: t.durationSeconds,
+            color: t.color ?? 'orange',
+            completedAt: t.completedAt,
+          };
+        });
         const all = [...newEntries, ...existing];
         // Keep only last 60 days
         const cutoff = new Date();
@@ -432,6 +448,31 @@ export function SequenceApp() {
       } catch {}
     }
     // Notify the history component to refresh
+    window.dispatchEvent(new Event('completion-log-updated'));
+    return idMap;
+  }, [isLoggedIn]);
+
+  // Retracts a completion-log entry — used when a task is un-marked as done,
+  // so toggling done -> undone -> done doesn't leave a duplicate stats entry behind.
+  const retractCompletionLog = useCallback(async (completionLogId: string) => {
+    if (isLoggedIn) {
+      try {
+        await fetch('/api/completion-log', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: completionLogId }),
+        });
+      } catch (e) {
+        console.error('Failed to retract completion log:', e);
+      }
+    } else {
+      try {
+        const key = 'countdowndo-completion-history';
+        const existing: any[] = JSON.parse(localStorage.getItem(key) || '[]');
+        const filtered = existing.filter((e) => e.id !== completionLogId);
+        localStorage.setItem(key, JSON.stringify(filtered));
+      } catch {}
+    }
     window.dispatchEvent(new Event('completion-log-updated'));
   }, [isLoggedIn]);
 
@@ -451,35 +492,58 @@ export function SequenceApp() {
         ? (prev ?? []).filter((t: Task) => !t?.isDone)
         : (prev ?? []);
       return recalculateCumulativeTimes(
-        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0 } as Task))
+        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
       );
     });
     deleteSessionFromDb();
   };
 
+  // Marking done and un-marking are handled outside the setTasks updater (rather than
+  // inside it, as this used to be written) because logCompletedTasks/retractCompletionLog
+  // create/delete a database row — a non-idempotent side effect that must fire exactly
+  // once per call, not something safe to leave where React could invoke it twice.
   const handleMarkDone = (taskId: string) => {
-    setTasks((prev: Task[]) => {
-      const idx = (prev ?? []).findIndex((t: Task) => t?.id === taskId);
-      if (idx < 0) return prev ?? [];
-      const task = prev[idx];
+    const idx = (tasks ?? []).findIndex((t: Task) => t?.id === taskId);
+    if (idx < 0) return;
+    const task = tasks[idx];
 
-      const updated = (prev ?? []).map((t: Task, i: number) => {
-        if (i === idx) {
-          // Toggle: if already done, uncheck it; otherwise mark done
-          return task?.isDone
-            ? { ...(t ?? {}), isDone: false, doneAt: null } as Task
-            : { ...(t ?? {}), isDone: true, doneAt: Date.now() } as Task;
-        }
-        return t;
-      });
-
-      // Log immediately when marking done (not when unchecking)
-      if (!task?.isDone) {
-        logCompletedTasks([{ ...task, isDone: true, doneAt: Date.now() }]);
-      }
-
+    if (task?.isDone) {
+      // Un-marking: retract the log entry we created (if any), so a later
+      // done -> undone -> done cycle doesn't leave two entries behind.
+      const updated = tasks.map((t: Task, i: number) =>
+        i === idx ? { ...t, isDone: false, doneAt: null, completionLogId: null } as Task : t
+      );
+      setTasks(updated);
       saveSessionToDb(updated);
-      return updated;
+      if (task.completionLogId) {
+        retractCompletionLog(task.completionLogId);
+      }
+      return;
+    }
+
+    // Marking done: update immediately, then attach the log entry's id once it comes back.
+    const doneAt = Date.now();
+    const provisional = tasks.map((t: Task, i: number) =>
+      i === idx ? { ...t, isDone: true, doneAt } as Task : t
+    );
+    setTasks(provisional);
+    saveSessionToDb(provisional);
+
+    logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
+      const logId = idMap[taskId];
+      if (!logId) return;
+      // Use the functional form here: this resolves after an await, so the
+      // task list may have changed since `provisional` was captured (e.g. the
+      // user added/reordered tasks). Patching against the live `prev` avoids
+      // clobbering that. saveSessionToDb is an idempotent upsert, so it's
+      // safe inside the updater even if React ever invoked it twice.
+      setTasks((prev: Task[]) => {
+        const withLogId = prev.map((t: Task) =>
+          t.id === taskId ? { ...t, completionLogId: logId } : t
+        );
+        saveSessionToDb(withLogId);
+        return withLogId;
+      });
     });
   };
 
@@ -545,16 +609,76 @@ export function SequenceApp() {
         };
         const withNew = position === 'top' ? [newTask, ...list] : [...list, newTask];
         const updated = recalculateCumulativeTimes(withNew);
+        if (sessionState !== 'idle') {
+          // Sprint mode active session — persist, matching handleEditTask's equivalent branch
+          // (previously missing here, so tasks added mid-sprint were never saved to the DB).
+          const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
+          setSessionTotalSeconds(newTotal);
+          saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
+        }
         return updated;
       }
     });
   };
 
+  // Adds a whole batch of Task Bank tasks in one setTasks call rather than
+  // looping handleAddTask per item. Looping would have each call read the same
+  // pre-batch `sessionTotalSeconds` closure (state updates aren't visible again
+  // until the next render), so every task after the first got the wrong
+  // cumulative time. Computing the batch in one pass sidesteps that entirely.
   const handleAddFromBank = (bankTasks: BankTask[]) => {
-    bankTasks.forEach((bt) => handleAddTask(bt.name, bt.durationSeconds, 'bottom', bt.color));
-    if (bankTasks.length > 0) {
-      toast.success(`Added ${bankTasks.length} task${bankTasks.length !== 1 ? 's' : ''} from bank`);
-    }
+    if (bankTasks.length === 0) return;
+    const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
+
+    setTasks((prev: Task[]) => {
+      const list = prev ?? [];
+
+      if (isActiveContinuous) {
+        let effectiveTotal = sessionTotalSeconds;
+        if (effectiveTotal <= 0 && list.length > 0) {
+          effectiveTotal = list[list.length - 1]?.cumulativeSeconds ?? 0;
+        }
+        let running = effectiveTotal;
+        const newTasks: Task[] = bankTasks.map((bt) => {
+          running += bt.durationSeconds;
+          return {
+            id: generateId(),
+            name: bt.name,
+            durationSeconds: bt.durationSeconds,
+            cumulativeSeconds: running,
+            isDone: false,
+            doneAt: null,
+            bonusSeconds: 0,
+            color: bt.color,
+          };
+        });
+        const updated = [...list, ...newTasks];
+        setSessionTotalSeconds(running);
+        saveSessionToDb(updated, undefined, undefined, undefined, undefined, running);
+        return updated;
+      }
+
+      // Idle or sprint: full recalculation
+      const newTasks: Task[] = bankTasks.map((bt) => ({
+        id: generateId(),
+        name: bt.name,
+        durationSeconds: bt.durationSeconds,
+        cumulativeSeconds: 0,
+        isDone: false,
+        doneAt: null,
+        bonusSeconds: 0,
+        color: bt.color,
+      }));
+      const updated = recalculateCumulativeTimes([...list, ...newTasks]);
+      if (sessionState !== 'idle') {
+        const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
+        setSessionTotalSeconds(newTotal);
+        saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
+      }
+      return updated;
+    });
+
+    toast.success(`Added ${bankTasks.length} task${bankTasks.length !== 1 ? 's' : ''} from bank`);
   };
 
   const handleDeleteTask = (taskId: string) => {
@@ -562,27 +686,22 @@ export function SequenceApp() {
 
     // In continuous mode during an active session, treat delete as "mark done" and remove from list
     if (isActive && sessionMode === 'continuous') {
-      setTasks((prev: Task[]) => {
-        const deletedTask = (prev ?? []).find((t: Task) => t?.id === taskId);
-        // Log the deleted task as completed
-        if (deletedTask && !deletedTask.isDone) {
-          logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
-        }
-        // Filter out the task (remove from display)
-        const filtered = (prev ?? []).filter((t: Task) => t?.id !== taskId);
-        saveSessionToDb(filtered);
-        return filtered;
-      });
+      const deletedTask = (tasks ?? []).find((t: Task) => t?.id === taskId);
+      const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
+      setTasks(filtered);
+      saveSessionToDb(filtered);
+      // Log outside the updater — this creates a DB row, so it must fire exactly once.
+      if (deletedTask && !deletedTask.isDone) {
+        logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
+      }
       return;
     }
 
     // Sprint mode or idle: actually remove the task and recalculate
-    setTasks((prev: Task[]) => {
-      const filtered = (prev ?? []).filter((t: Task) => t?.id !== taskId);
-      const updated = recalculateCumulativeTimes(filtered);
-      if (isActive) saveSessionToDb(updated);
-      return updated;
-    });
+    const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
+    const updated = recalculateCumulativeTimes(filtered);
+    setTasks(updated);
+    if (isActive) saveSessionToDb(updated);
   };
 
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {

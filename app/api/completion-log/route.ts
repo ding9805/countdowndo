@@ -52,16 +52,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No tasks provided' }, { status: 400 });
     }
 
-    // Create completion logs for each task
-    const logs = await prisma.completionLog.createMany({
-      data: tasks.map((t: { name: string; durationSeconds: number; completedAt?: string; color?: string }) => ({
-        taskName: t.name,
-        durationSeconds: t.durationSeconds,
-        color: t.color ?? null,
-        completedAt: t.completedAt ? new Date(t.completedAt) : new Date(),
-        userId: session.user.id,
-      })),
-    });
+    // Create logs individually (not createMany) so we can return each row's id —
+    // the client tracks it on the task so un-marking "done" can retract it later.
+    const logs = await Promise.all(
+      tasks.map((t: { name: string; durationSeconds: number; completedAt?: string; color?: string }) =>
+        prisma.completionLog.create({
+          data: {
+            taskName: t.name,
+            durationSeconds: t.durationSeconds,
+            color: t.color ?? null,
+            completedAt: t.completedAt ? new Date(t.completedAt) : new Date(),
+            userId: session.user.id,
+          },
+        })
+      )
+    );
 
     // Cleanup: delete logs older than 60 days
     const cutoff = new Date();
@@ -75,7 +80,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({ count: logs.count });
+    return NextResponse.json({ count: logs.length, logs });
   } catch (error) {
     console.error('POST completion-log error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
