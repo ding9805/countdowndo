@@ -22,6 +22,10 @@ export interface Task {
   // un-marking it can retract that entry instead of leaving a duplicate
   // behind if it's marked done again later.
   completionLogId?: string | null;
+  // If this task was imported from the task bank, track its bank ID and whether
+  // it's one-off so we can delete it from the bank if completed or removed
+  bankTaskId?: string | null;
+  isOneOffBankTask?: boolean;
 }
 
 export interface BankTask {
@@ -30,6 +34,7 @@ export interface BankTask {
   durationSeconds: number;
   color: TaskColorId;
   tags: string[];
+  isOneOff: boolean;
   createdAt: string;
   updatedAt: string;
 }

@@ -36,6 +36,7 @@ model BankTask {
   durationSeconds Int
   color           String   // TaskColorId: orange, blue, green, purple, pink
   tags            String[] @default([])
+  isOneOff        Boolean  @default(false)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

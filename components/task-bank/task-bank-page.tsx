@@ -66,7 +66,7 @@ export function TaskBankPage() {
   const openCreate = () => { setFormMode('create'); setEditingTask(null); setFormOpen(true); };
   const openEdit = (task: BankTask) => { setFormMode('edit'); setEditingTask(task); setFormOpen(true); };
 
-  const handleFormSubmit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => {
+  const handleFormSubmit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean }) => {
     try {
       if (formMode === 'create') {
         const res = await fetch('/api/task-bank', {

@@ -32,6 +32,8 @@ export const taskSchema = z.object({
   bonusSeconds: z.number().finite(),
   color: taskColorSchema,
   completionLogId: z.string().nullable().optional(),
+  bankTaskId: z.string().nullable().optional(),
+  isOneOffBankTask: z.boolean().optional(),
 });
 
 export const activeSessionPayloadSchema = z.object({
@@ -67,6 +69,7 @@ export const bankTaskCreateSchema = z.object({
   durationSeconds: durationSchema,
   color: taskColorSchema.optional(),
   tags: tagsSchema.optional(),
+  isOneOff: z.boolean().optional().default(false),
 });
 
 export const bankTaskUpdateSchema = z.object({
@@ -74,6 +77,7 @@ export const bankTaskUpdateSchema = z.object({
   durationSeconds: durationSchema.optional(),
   color: taskColorSchema.optional(),
   tags: tagsSchema.optional(),
+  isOneOff: z.boolean().optional(),
 });
 
 // Formats a ZodError into a single readable message for API error responses.

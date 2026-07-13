@@ -467,6 +467,16 @@ export function useSessionEngine(isLoggedIn: boolean) {
     return idMap;
   }, [isLoggedIn]);
 
+  // Deletes a one-off bank task when it's completed or removed from session
+  const deleteOneOffBankTask = useCallback(async (bankTaskId: string) => {
+    if (!isLoggedIn || !bankTaskId) return;
+    try {
+      await fetch(`/api/task-bank/${bankTaskId}`, { method: 'DELETE' });
+    } catch (e) {
+      console.error('Failed to delete one-off bank task:', e);
+    }
+  }, [isLoggedIn]);
+
   // Retracts a completion-log entry — used when a task is un-marked as done,
   // so toggling done -> undone -> done doesn't leave a duplicate stats entry behind.
   const retractCompletionLog = useCallback(async (completionLogId: string) => {
@@ -543,6 +553,11 @@ export function useSessionEngine(isLoggedIn: boolean) {
     );
     setTasks(provisional);
     saveSessionToDb(provisional);
+
+    // If this is a one-off bank task, delete it from the bank
+    if (task.isOneOffBankTask && task.bankTaskId) {
+      deleteOneOffBankTask(task.bankTaskId);
+    }
 
     logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
       const logId = idMap[taskId];
@@ -664,6 +679,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
             doneAt: null,
             bonusSeconds: 0,
             color: bt.color,
+            bankTaskId: bt.id,
+            isOneOffBankTask: bt.isOneOff,
           };
         });
         const updated = [...list, ...newTasks];
@@ -682,6 +699,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
         doneAt: null,
         bonusSeconds: 0,
         color: bt.color,
+        bankTaskId: bt.id,
+        isOneOffBankTask: bt.isOneOff,
       }));
       const updated = recalculateCumulativeTimes([...list, ...newTasks]);
       // Persist regardless of session state — see the comment in handleAddTask.
@@ -696,16 +715,20 @@ export function useSessionEngine(isLoggedIn: boolean) {
 
   const handleDeleteTask = (taskId: string) => {
     const isActive = sessionState !== 'idle';
+    const deletedTask = (tasks ?? []).find((t: Task) => t?.id === taskId);
 
     // In continuous mode during an active session, treat delete as "mark done" and remove from list
     if (isActive && sessionMode === 'continuous') {
-      const deletedTask = (tasks ?? []).find((t: Task) => t?.id === taskId);
       const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
       setTasks(filtered);
       saveSessionToDb(filtered);
       // Log outside the updater — this creates a DB row, so it must fire exactly once.
       if (deletedTask && !deletedTask.isDone) {
         logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
+      }
+      // If this is a one-off bank task, delete it from the bank
+      if (deletedTask?.isOneOffBankTask && deletedTask?.bankTaskId) {
+        deleteOneOffBankTask(deletedTask.bankTaskId);
       }
       return;
     }
@@ -716,6 +739,10 @@ export function useSessionEngine(isLoggedIn: boolean) {
     const updated = recalculateCumulativeTimes(filtered);
     setTasks(updated);
     saveSessionToDb(updated);
+    // If this is a one-off bank task, delete it from the bank
+    if (deletedTask?.isOneOffBankTask && deletedTask?.bankTaskId) {
+      deleteOneOffBankTask(deletedTask.bankTaskId);
+    }
   };
 
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {

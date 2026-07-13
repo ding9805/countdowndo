@@ -18,16 +18,17 @@ interface TaskBankFormProps {
   initialTask?: BankTask | null;
   templates: BankTaskTemplate[];
   existingTags: string[];
-  onSubmit: (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => Promise<void> | void;
+  onSubmit: (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean }) => Promise<void> | void;
 }
 
-const DEFAULTS = { name: '', durationSeconds: 300, color: 'orange' as TaskColorId, tags: [] as string[] };
+const DEFAULTS = { name: '', durationSeconds: 300, color: 'orange' as TaskColorId, tags: [] as string[], isOneOff: false };
 
 export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates, existingTags, onSubmit }: TaskBankFormProps) {
   const [name, setName] = useState(DEFAULTS.name);
   const [durationSeconds, setDurationSeconds] = useState(DEFAULTS.durationSeconds);
   const [color, setColor] = useState<TaskColorId>(DEFAULTS.color);
   const [tags, setTags] = useState<string[]>(DEFAULTS.tags);
+  const [isOneOff, setIsOneOff] = useState(DEFAULTS.isOneOff);
   const [tagInput, setTagInput] = useState('');
   const [templateId, setTemplateId] = useState<string>('');
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -40,11 +41,13 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
       setDurationSeconds(initialTask.durationSeconds);
       setColor(initialTask.color);
       setTags(initialTask.tags);
+      setIsOneOff(initialTask.isOneOff);
     } else {
       setName(DEFAULTS.name);
       setDurationSeconds(DEFAULTS.durationSeconds);
       setColor(DEFAULTS.color);
       setTags(DEFAULTS.tags);
+      setIsOneOff(DEFAULTS.isOneOff);
     }
     setTagInput('');
     setTemplateId('');
@@ -67,7 +70,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     const finalTags = mergePendingTag(tags, tagInput);
     setSubmitting(true);
     try {
-      await onSubmit({ name: trimmed, durationSeconds, color, tags: finalTags });
+      await onSubmit({ name: trimmed, durationSeconds, color, tags: finalTags, isOneOff });
       onOpenChange(false);
     } finally {
       setSubmitting(false);
@@ -142,6 +145,21 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Tags</label>
             <TagInput tags={tags} onChange={setTags} existingTags={existingTags} inputValue={tagInput} onInputChange={setTagInput} />
+          </div>
+
+          <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
+            <input
+              type="checkbox"
+              id="isOneOff"
+              checked={isOneOff}
+              onChange={(e) => setIsOneOff(e.target.checked)}
+              className="w-4 h-4 rounded border-border/50 cursor-pointer"
+            />
+            <label htmlFor="isOneOff" className="text-xs text-muted-foreground cursor-pointer flex-1">
+              <span className="font-medium text-foreground">One-off task</span>
+              <br />
+              Delete from bank when completed or removed from session
+            </label>
           </div>
         </div>
 
