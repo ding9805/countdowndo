@@ -107,6 +107,7 @@ function ResetPasswordForm() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={6}
+            maxLength={72}
             className="bg-secondary/60 border-border/60 focus-visible:border-primary/50"
           />
         </div>
@@ -119,6 +120,7 @@ function ResetPasswordForm() {
             onChange={(e) => setConfirmPassword(e.target.value)}
             required
             minLength={6}
+            maxLength={72}
             className="bg-secondary/60 border-border/60 focus-visible:border-primary/50"
           />
         </div>
