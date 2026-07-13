@@ -13,6 +13,19 @@ function hashIp(ip: string): string {
   return crypto.createHash('sha256').update(ip + (process.env.NEXTAUTH_SECRET || 'salt')).digest('hex');
 }
 
+// feedback.message/email are attacker-controlled free text that gets
+// interpolated into an HTML email sent to the site owner's inbox — without
+// escaping, a submitter can inject markup (phishing links styled as app UI,
+// tracking pixels, layout takeover) into that email.
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -100,10 +113,10 @@ async function sendFeedbackEmail(feedback: { id: string; category: string; messa
       </h2>
       <div style="background: #1a1a1a; color: #e5e5e5; padding: 20px; border-radius: 8px; margin: 20px 0;">
         <p style="margin: 10px 0;"><strong style="color: #f97316;">Category:</strong> ${categoryLabels[feedback.category]}</p>
-        ${feedback.email ? `<p style="margin: 10px 0;"><strong style="color: #f97316;">Reply-to:</strong> <a href="mailto:${feedback.email}" style="color: #60a5fa;">${feedback.email}</a></p>` : ''}
+        ${feedback.email ? `<p style="margin: 10px 0;"><strong style="color: #f97316;">Reply-to:</strong> <a href="mailto:${encodeURIComponent(feedback.email)}" style="color: #60a5fa;">${escapeHtml(feedback.email)}</a></p>` : ''}
         <p style="margin: 10px 0;"><strong style="color: #f97316;">Message:</strong></p>
         <div style="background: #262626; padding: 15px; border-radius: 4px; border-left: 4px solid #f97316; white-space: pre-wrap;">
-          ${feedback.message}
+          ${escapeHtml(feedback.message)}
         </div>
       </div>
       <p style="color: #888; font-size: 12px;">
@@ -124,7 +137,7 @@ async function sendFeedbackEmail(feedback: { id: string; category: string; messa
   const fromEmail = process.env.EMAIL_FROM || `${appName} <noreply@${hostname}>`;
   const feedbackRecipient = process.env.FEEDBACK_NOTIFICATION_EMAIL || 'zhongxinsamuel@gmail.com';
 
-  await fetch('https://api.resend.com/emails', {
+  const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -137,4 +150,11 @@ async function sendFeedbackEmail(feedback: { id: string; category: string; messa
       html: htmlBody,
     }),
   });
+  // fetch doesn't reject on 4xx/5xx — surface Resend rejections in the logs
+  // (this call is already fire-and-forget, so there's nothing else to do
+  // with it, but a silent failure here means notifications quietly stop).
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '');
+    console.error('Resend rejected feedback notification:', res.status, errBody);
+  }
 }

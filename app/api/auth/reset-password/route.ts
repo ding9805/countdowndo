@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import bcrypt from 'bcryptjs';
+import { hashResetToken } from '@/lib/reset-token';
 
 export async function POST(request: NextRequest) {
   try {
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
     // Find user with this token that hasn't expired
     const user = await prisma.user.findFirst({
       where: {
-        resetToken: token,
+        resetToken: hashResetToken(token),
         resetTokenExpiry: { gt: new Date() },
       },
     });
@@ -35,6 +36,9 @@ export async function POST(request: NextRequest) {
         hashedPassword,
         resetToken: null,
         resetTokenExpiry: null,
+        // Invalidates any existing sessions (e.g. an attacker's, if that's why
+        // the password was reset) — see the jwt callback in lib/auth.ts.
+        tokenVersion: { increment: 1 },
       },
     });
 

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
+import { hashResetToken } from '@/lib/reset-token';
 
 export async function POST(request: NextRequest) {
   try {
@@ -19,14 +20,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // Generate a secure random token
+    // Generate a secure random token. Only its hash is stored — the raw
+    // value only ever exists in the email we send below.
     const resetToken = crypto.randomBytes(32).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    // Save token to user
+    // Save the hashed token to the user
     await prisma.user.update({
       where: { id: user.id },
-      data: { resetToken, resetTokenExpiry },
+      data: { resetToken: hashResetToken(resetToken), resetTokenExpiry },
     });
 
     // Build reset URL
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
     try {
       const resendApiKey = process.env.RESEND_API_KEY;
       const fromEmail = process.env.EMAIL_FROM || `CountdownDo <noreply@${appHostname}>`;
-      await fetch('https://api.resend.com/emails', {
+      const emailRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -78,6 +80,14 @@ export async function POST(request: NextRequest) {
           html: htmlBody,
         }),
       });
+      // fetch only rejects on network failure — a 4xx/5xx from Resend (bad key,
+      // unverified domain, quota) resolves normally and must be checked explicitly,
+      // otherwise we'd tell the user an email is on its way when it never sent.
+      if (!emailRes.ok) {
+        const errBody = await emailRes.text().catch(() => '');
+        console.error('Resend rejected reset email:', emailRes.status, errBody);
+        return NextResponse.json({ error: 'Failed to send reset email. Please try again.' }, { status: 500 });
+      }
     } catch (emailError) {
       console.error('Failed to send reset email:', emailError);
       return NextResponse.json({ error: 'Failed to send reset email. Please try again.' }, { status: 500 });
