@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { normalizeTags } from '@/lib/tag-utils';
+import { bankTaskUpdateSchema, formatZodError } from '@/lib/schemas';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -20,21 +21,15 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const body = await req.json();
-    const { name, durationSeconds, color, tags } = body ?? {};
+    const parsed = bankTaskUpdateSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
+    }
+    const { name, durationSeconds, color, tags } = parsed.data;
 
     const updateData: any = {};
-    if (name !== undefined) {
-      if (typeof name !== 'string' || !name.trim()) {
-        return NextResponse.json({ error: 'Task name cannot be empty' }, { status: 400 });
-      }
-      updateData.name = name.trim();
-    }
-    if (durationSeconds !== undefined) {
-      if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-        return NextResponse.json({ error: 'Duration must be a positive number of seconds' }, { status: 400 });
-      }
-      updateData.durationSeconds = Math.round(durationSeconds);
-    }
+    if (name !== undefined) updateData.name = name;
+    if (durationSeconds !== undefined) updateData.durationSeconds = Math.round(durationSeconds);
     if (color !== undefined) updateData.color = color;
     if (tags !== undefined) {
       const [taskRows, templateRows] = await Promise.all([
@@ -42,7 +37,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         prisma.bankTaskTemplate.findMany({ where: { userId }, select: { tags: true } }),
       ]);
       const corpus = [...taskRows, ...templateRows].flatMap((t) => t.tags);
-      updateData.tags = normalizeTags(corpus, Array.isArray(tags) ? tags : []);
+      updateData.tags = normalizeTags(corpus, tags);
     }
 
     const task = await prisma.bankTask.update({ where: { id }, data: updateData });

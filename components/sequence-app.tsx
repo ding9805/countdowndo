@@ -41,6 +41,10 @@ export function SequenceApp() {
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
   const sessionSavedToDbRef = useRef(false);
+  // The updatedAt of the ActiveSession row this client last saw. Sent on every
+  // save so the server can detect a write from another device/tab that
+  // happened in between — see the 409 handling in saveSessionToDb.
+  const lastKnownUpdatedAtRef = useRef<string | null>(null);
 
   // Load taskOrder from localStorage on mount + set initial planning start time
   useEffect(() => {
@@ -93,6 +97,49 @@ export function SequenceApp() {
     };
   }, [isLoggedIn, sessionState]);
 
+  // Applies a full ActiveSession row from the server to local state — shared by
+  // the initial load, the cross-device poll, and 409-conflict reconciliation
+  // (all three need to do exactly the same "adopt the server's version" thing).
+  const applyRemoteSessionData = useCallback((data: any) => {
+    const loadedTasks = (data.tasks as Task[]) ?? [];
+    setTasks(loadedTasks);
+    setSessionMode((data.sessionMode as SessionMode) ?? 'continuous');
+
+    // Auto-heal: if sessionTotalSeconds is 0 but session is active with tasks,
+    // derive it from the last task's cumulative (legacy/migration safety)
+    let total = data.sessionTotalSeconds ?? 0;
+    if (total <= 0 && loadedTasks.length > 0 && data.sessionState !== 'idle') {
+      total = loadedTasks[loadedTasks.length - 1]?.cumulativeSeconds ?? 0;
+    }
+    setSessionTotalSeconds(total);
+    soundPlayedRef.current = new Set((data.soundPlayed as string[]) ?? []);
+
+    if (data.sessionState === 'running') {
+      setSessionState('running');
+      setSessionStartTime(data.sessionStartMs);
+      setPausedElapsed(data.pausedElapsed ?? 0);
+    } else if (data.sessionState === 'paused') {
+      setSessionState('paused');
+      setSessionStartTime(null);
+      setPausedElapsed(data.pausedElapsed ?? 0);
+    } else {
+      setSessionState('idle');
+      setSessionStartTime(null);
+      setPausedElapsed(0);
+    }
+
+    lastKnownUpdatedAtRef.current = data.updatedAt ?? null;
+    lastSyncRef.current = JSON.stringify({
+      tasks: data.tasks,
+      sessionState: data.sessionState,
+      sessionStartMs: data.sessionStartMs,
+      pausedElapsed: data.pausedElapsed,
+      sessionMode: data.sessionMode,
+      sessionTotalSeconds: data.sessionTotalSeconds ?? 0,
+    });
+    sessionSavedToDbRef.current = data.sessionState === 'running' || data.sessionState === 'paused';
+  }, []);
+
   const loadActiveSession = async () => {
     try {
       const res = await fetch('/api/active-session');
@@ -102,41 +149,7 @@ export function SequenceApp() {
         initialLoadDone.current = true;
         return;
       }
-
-      const loadedTasks = (data.tasks as Task[]) ?? [];
-      setTasks(loadedTasks);
-      setSessionState(data.sessionState as SessionState);
-      setSessionMode((data.sessionMode as SessionMode) ?? 'continuous');
-
-      // Auto-heal: if sessionTotalSeconds is 0 but session is active with tasks,
-      // derive it from the last task's cumulative (legacy/migration safety)
-      let loadedTotal = data.sessionTotalSeconds ?? 0;
-      if (loadedTotal <= 0 && loadedTasks.length > 0 && data.sessionState !== 'idle') {
-        loadedTotal = loadedTasks[loadedTasks.length - 1]?.cumulativeSeconds ?? 0;
-        console.warn('[loadActiveSession] sessionTotalSeconds was 0, derived from tasks:', loadedTotal);
-      }
-      setSessionTotalSeconds(loadedTotal);
-      soundPlayedRef.current = new Set((data.soundPlayed as string[]) ?? []);
-
-      if (data.sessionState === 'running') {
-        setSessionStartTime(data.sessionStartMs);
-        setPausedElapsed(data.pausedElapsed ?? 0);
-      } else if (data.sessionState === 'paused') {
-        setSessionStartTime(null);
-        setPausedElapsed(data.pausedElapsed ?? 0);
-      }
-
-      lastSyncRef.current = JSON.stringify({
-        tasks: loadedTasks,
-        sessionState: data.sessionState,
-        sessionStartMs: data.sessionStartMs,
-        pausedElapsed: data.pausedElapsed,
-        sessionMode: data.sessionMode,
-        sessionTotalSeconds: data.sessionTotalSeconds ?? 0,
-      });
-      if (data.sessionState === 'running' || data.sessionState === 'paused') {
-        sessionSavedToDbRef.current = true;
-      }
+      applyRemoteSessionData(data);
       initialLoadDone.current = true;
     } catch (e: any) {
       console.error('Failed to load active session:', e);
@@ -160,6 +173,7 @@ export function SequenceApp() {
           setElapsedSeconds(0);
           soundPlayedRef.current = new Set();
           sessionSavedToDbRef.current = false;
+          lastKnownUpdatedAtRef.current = null;
         }
         return;
       }
@@ -174,28 +188,12 @@ export function SequenceApp() {
       });
 
       if (remoteState !== lastSyncRef.current) {
-        lastSyncRef.current = remoteState;
-        const loadedTasks = (data.tasks as Task[]) ?? [];
-        setTasks(loadedTasks);
-        setSessionMode((data.sessionMode as SessionMode) ?? 'continuous');
-
-        // Auto-heal: derive sessionTotalSeconds from tasks if it's 0 but session is active
-        let polledTotal = data.sessionTotalSeconds ?? 0;
-        if (polledTotal <= 0 && loadedTasks.length > 0 && data.sessionState !== 'idle') {
-          polledTotal = loadedTasks[loadedTasks.length - 1]?.cumulativeSeconds ?? 0;
-        }
-        setSessionTotalSeconds(polledTotal);
-        soundPlayedRef.current = new Set((data.soundPlayed as string[]) ?? []);
-
-        if (data.sessionState === 'running' && sessionState !== 'running') {
-          setSessionState('running');
-          setSessionStartTime(data.sessionStartMs);
-          setPausedElapsed(data.pausedElapsed ?? 0);
-        } else if (data.sessionState === 'paused' && sessionState !== 'paused') {
-          setSessionState('paused');
-          setSessionStartTime(null);
-          setPausedElapsed(data.pausedElapsed ?? 0);
-        } else if (data.sessionState === 'running') {
+        applyRemoteSessionData(data);
+      } else {
+        // Data is unchanged, but still track the latest updatedAt/timing fields
+        // in case this poll is racing a save that's about to conflict-check.
+        lastKnownUpdatedAtRef.current = data.updatedAt ?? lastKnownUpdatedAtRef.current;
+        if (data.sessionState === 'running') {
           setSessionStartTime(data.sessionStartMs);
           setPausedElapsed(data.pausedElapsed ?? 0);
         } else if (data.sessionState === 'paused') {
@@ -228,6 +226,7 @@ export function SequenceApp() {
           soundPlayed: Array.from(soundPlayedRef.current),
           sessionMode: currentMode,
           sessionTotalSeconds: currentTotalSeconds,
+          lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
         };
 
         lastSyncRef.current = JSON.stringify({
@@ -244,14 +243,26 @@ export function SequenceApp() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        if (res.ok) sessionSavedToDbRef.current = true;
+        if (res.status === 409) {
+          // Another device/tab saved since we last synced — adopt its state
+          // instead of retrying this (now-stale) write over it.
+          const conflictBody = await res.json().catch(() => null);
+          if (conflictBody?.latest) {
+            applyRemoteSessionData(conflictBody.latest);
+            toast.info('Synced with a more recent change from another device');
+          }
+        } else if (res.ok) {
+          const saved = await res.json().catch(() => null);
+          if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
+          sessionSavedToDbRef.current = true;
+        }
       } catch (e: any) {
         console.error('Failed to save session:', e);
       } finally {
         isSavingRef.current = false;
       }
     }, SAVE_DEBOUNCE);
-  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds]);
+  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, applyRemoteSessionData]);
 
   // Immediate save for critical operations (bypasses debounce)
   const saveSessionToDbImmediate = useCallback(async (overrideTasks: Task[], overrideTotalSeconds: number) => {
@@ -267,6 +278,7 @@ export function SequenceApp() {
         soundPlayed: Array.from(soundPlayedRef.current),
         sessionMode: sessionMode,
         sessionTotalSeconds: overrideTotalSeconds,
+        lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
       };
 
       lastSyncRef.current = JSON.stringify({
@@ -283,18 +295,29 @@ export function SequenceApp() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (res.ok) sessionSavedToDbRef.current = true;
+      if (res.status === 409) {
+        const conflictBody = await res.json().catch(() => null);
+        if (conflictBody?.latest) {
+          applyRemoteSessionData(conflictBody.latest);
+          toast.info('Synced with a more recent change from another device');
+        }
+      } else if (res.ok) {
+        const saved = await res.json().catch(() => null);
+        if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
+        sessionSavedToDbRef.current = true;
+      }
     } catch (e: any) {
       console.error('Failed to save session immediately:', e);
     } finally {
       isSavingRef.current = false;
     }
-  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode]);
+  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, applyRemoteSessionData]);
 
   const deleteSessionFromDb = async () => {
     if (!isLoggedIn) return;
     try {
       await fetch('/api/active-session', { method: 'DELETE' });
+      lastKnownUpdatedAtRef.current = null;
     } catch (e: any) {
       console.error('Failed to delete session:', e);
     }
@@ -609,13 +632,12 @@ export function SequenceApp() {
         };
         const withNew = position === 'top' ? [newTask, ...list] : [...list, newTask];
         const updated = recalculateCumulativeTimes(withNew);
-        if (sessionState !== 'idle') {
-          // Sprint mode active session — persist, matching handleEditTask's equivalent branch
-          // (previously missing here, so tasks added mid-sprint were never saved to the DB).
-          const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
-          setSessionTotalSeconds(newTotal);
-          saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
-        }
+        // Persist regardless of session state (including idle) so a staged
+        // pre-session task list survives a refresh, same as an active one
+        // already does. No-ops internally for guests.
+        const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
+        setSessionTotalSeconds(newTotal);
+        saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
         return updated;
       }
     });
@@ -670,11 +692,10 @@ export function SequenceApp() {
         color: bt.color,
       }));
       const updated = recalculateCumulativeTimes([...list, ...newTasks]);
-      if (sessionState !== 'idle') {
-        const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
-        setSessionTotalSeconds(newTotal);
-        saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
-      }
+      // Persist regardless of session state — see the comment in handleAddTask.
+      const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
+      setSessionTotalSeconds(newTotal);
+      saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
       return updated;
     });
 
@@ -697,11 +718,12 @@ export function SequenceApp() {
       return;
     }
 
-    // Sprint mode or idle: actually remove the task and recalculate
+    // Sprint mode or idle: actually remove the task and recalculate.
+    // Persisted regardless of isActive so a staged pre-session list survives a refresh.
     const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
     const updated = recalculateCumulativeTimes(filtered);
     setTasks(updated);
-    if (isActive) saveSessionToDb(updated);
+    saveSessionToDb(updated);
   };
 
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {
@@ -740,17 +762,16 @@ export function SequenceApp() {
         return updated;
       }
 
-      // Sprint mode or idle: full recalculation
+      // Sprint mode or idle: full recalculation. Persisted regardless of
+      // session state — see the comment in handleAddTask.
       const updated = recalculateCumulativeTimes(
         list.map((t: Task) =>
           t?.id === taskId ? { ...(t ?? {}), name, durationSeconds, ...(color ? { color } : {}) } as Task : t
         )
       );
-      if (sessionState !== 'idle') {
-        const newTotalSeconds = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
-        setSessionTotalSeconds(newTotalSeconds);
-        saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
-      }
+      const newTotalSeconds = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
+      setSessionTotalSeconds(newTotalSeconds);
+      saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
       return updated;
     });
   };
@@ -785,24 +806,6 @@ export function SequenceApp() {
           return { ...(task ?? {}), cumulativeSeconds: cumulative } as Task;
         });
 
-        // Diagnostic logging
-        const prevTotal = prevTasks.length > 0 ? prevTasks[prevTasks.length - 1]?.cumulativeSeconds ?? 0 : 0;
-        const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
-        console.log('[handleReorder] CONTINUOUS', {
-          sessionTotalSeconds,
-          effectiveTotal,
-          prevTotal,
-          newTotal,
-          baseOffset,
-          sumOfDurations,
-          prevTaskCount: prevTasks.length,
-          newTaskCount: updated.length,
-        });
-
-        if (newTotal !== effectiveTotal) {
-          console.warn('[handleReorder] ⚠ MISMATCH: newTotal !== effectiveTotal!', { newTotal, effectiveTotal });
-        }
-
         // If sessionTotalSeconds was wrong, fix it in state too
         if (sessionTotalSeconds !== effectiveTotal) {
           setSessionTotalSeconds(effectiveTotal);
@@ -815,16 +818,14 @@ export function SequenceApp() {
       return;
     }
 
-    // SPRINT MODE or IDLE: Full recalculation
+    // SPRINT MODE or IDLE: full recalculation, sessionTotalSeconds = sum of
+    // task durations (no gaps). Persisted regardless of session state — see
+    // the comment in handleAddTask.
     const updated = recalculateCumulativeTimes(newTasks ?? []);
     const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
-    console.log('[handleReorder] SPRINT/IDLE', { newTotal, sessionState, sessionMode });
     setTasks(updated);
-    if (sessionState !== 'idle') {
-      // Sprint mode: sessionTotalSeconds = sum of task durations (no gaps)
-      setSessionTotalSeconds(newTotal);
-      saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
-    }
+    setSessionTotalSeconds(newTotal);
+    saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
   };
 
   const isSession = sessionState === 'running' || sessionState === 'paused';

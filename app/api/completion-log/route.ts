@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { prisma } from '@/lib/db';
+import { completionLogPayloadSchema, formatZodError } from '@/lib/schemas';
 
 // GET: Fetch completion logs for the past 60 days
 export async function GET() {
@@ -47,15 +48,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Your session is no longer valid. Please log in again.' }, { status: 401 });
     }
 
-    const { tasks } = await req.json();
-    if (!Array.isArray(tasks) || tasks.length === 0) {
-      return NextResponse.json({ error: 'No tasks provided' }, { status: 400 });
+    const body = await req.json();
+    const parsed = completionLogPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
     }
+    const { tasks } = parsed.data;
 
     // Create logs individually (not createMany) so we can return each row's id —
     // the client tracks it on the task so un-marking "done" can retract it later.
     const logs = await Promise.all(
-      tasks.map((t: { name: string; durationSeconds: number; completedAt?: string; color?: string }) =>
+      tasks.map((t) =>
         prisma.completionLog.create({
           data: {
             taskName: t.name,

@@ -56,6 +56,15 @@ model BankTaskTemplate {
   @@index([userId])
 }
 
+model RateLimitEntry {
+  id        String   @id @default(cuid())
+  scope     String   // e.g. 'signup:ip', 'forgot-password:ip', 'forgot-password:email'
+  keyHash   String   // sha256 hash of the IP or email being limited
+  createdAt DateTime @default(now())
+
+  @@index([scope, keyHash, createdAt])
+}
+
 model Feedback {
   id        String   @id @default(cuid())
   category  String   // 'bug' | 'feature' | 'general'
@@ -84,7 +93,7 @@ model ActiveSession {
   userId              String   @unique
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tasks               Json     // Full task array with state
-  sessionState        String   // 'running' | 'paused'
+  sessionState        String   // 'idle' | 'running' | 'paused' — 'idle' is a staged, not-yet-started task list
   sessionMode         String   @default("continuous") // 'continuous' | 'sprint'
   sessionStartMs      Float    // Date.now() when session started/resumed
   pausedElapsed       Float    // seconds elapsed before last pause

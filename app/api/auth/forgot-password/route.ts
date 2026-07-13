@@ -4,6 +4,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
 import { hashResetToken } from '@/lib/reset-token';
+import { checkAndRecordRateLimit, getClientIp } from '@/lib/rate-limit';
+
+// Same cadence as signup's IP limit.
+const IP_RATE_LIMIT_SECONDS = (60 * 60) / 5;
+// Caps reset emails sent to any one address, independent of who's asking —
+// without this, someone could repeatedly trigger reset emails to a victim's
+// inbox as harassment, potentially from different IPs each time.
+const EMAIL_RATE_LIMIT_SECONDS = (60 * 60) / 3;
 
 export async function POST(request: NextRequest) {
   try {
@@ -13,10 +21,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Email is required' }, { status: 400 });
     }
 
-    const user = await prisma.user.findUnique({ where: { email: email.toLowerCase().trim() } });
+    const ip = getClientIp(request);
+    const ipLimit = await checkAndRecordRateLimit('forgot-password:ip', ip, IP_RATE_LIMIT_SECONDS);
+    if (ipLimit.limited) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
 
-    // Always return success to prevent email enumeration
-    if (!user) {
+    const normalizedEmail = email.toLowerCase().trim();
+    // Checked (and recorded) unconditionally, before we know if the account
+    // exists — a 429 that only ever appeared for real accounts would itself
+    // be an enumeration signal, on top of the inbox-flooding this prevents.
+    const emailLimit = await checkAndRecordRateLimit('forgot-password:email', normalizedEmail, EMAIL_RATE_LIMIT_SECONDS);
+
+    const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+    // Always return success to prevent email enumeration — this also covers
+    // the "this address already got a reset email recently" case, so a
+    // rate-limited real address stays indistinguishable from a fake one.
+    if (!user || emailLimit.limited) {
       return NextResponse.json({ success: true });
     }
 

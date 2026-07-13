@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
+import { activeSessionPayloadSchema, formatZodError } from '@/lib/schemas';
 
 // GET: Retrieve the user's active session
 export async function GET() {
@@ -42,17 +43,29 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { tasks, sessionState, sessionStartMs, pausedElapsed, soundPlayed, sessionMode, sessionTotalSeconds } = body ?? {};
+    const parsed = activeSessionPayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
+    }
+    const { lastKnownUpdatedAt, ...data } = parsed.data;
 
-    const data = {
-      tasks: tasks ?? [],
-      sessionState: sessionState ?? 'running',
-      sessionMode: sessionMode ?? 'continuous',
-      sessionStartMs: sessionStartMs ?? Date.now(),
-      pausedElapsed: pausedElapsed ?? 0,
-      sessionTotalSeconds: sessionTotalSeconds ?? 0,
-      soundPlayed: soundPlayed ?? [],
-    };
+    // Optimistic concurrency: if this client last saw the row at some point,
+    // and the row has since been updated more recently than that (another
+    // device/tab wrote in between), reject instead of silently clobbering
+    // that write with a full-state overwrite computed from stale data.
+    if (lastKnownUpdatedAt) {
+      const existing = await prisma.activeSession.findUnique({
+        where: { userId },
+        select: { updatedAt: true },
+      });
+      if (existing && existing.updatedAt.getTime() > new Date(lastKnownUpdatedAt).getTime()) {
+        const latest = await prisma.activeSession.findUnique({ where: { userId } });
+        return NextResponse.json(
+          { error: 'Session was updated elsewhere', conflict: true, latest },
+          { status: 409 }
+        );
+      }
+    }
 
     const active = await prisma.activeSession.upsert({
       where: { userId },

@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { normalizeTags } from '@/lib/tag-utils';
+import { bankTaskCreateSchema, formatZodError } from '@/lib/schemas';
 
 async function getUserTagCorpus(userId: string): Promise<string[]> {
   const [tasks, templates] = await Promise.all([
@@ -49,22 +50,19 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { name, durationSeconds, color, tags } = body ?? {};
-
-    if (!name || typeof name !== 'string' || !name.trim()) {
-      return NextResponse.json({ error: 'Task name is required' }, { status: 400 });
+    const parsed = bankTaskCreateSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
     }
-    if (!Number.isFinite(durationSeconds) || durationSeconds <= 0) {
-      return NextResponse.json({ error: 'Duration must be a positive number of seconds' }, { status: 400 });
-    }
+    const { name, durationSeconds, color, tags } = parsed.data;
 
     const corpus = await getUserTagCorpus(userId);
-    const normalizedTags = normalizeTags(corpus, Array.isArray(tags) ? tags : []);
+    const normalizedTags = normalizeTags(corpus, tags ?? []);
 
     const task = await prisma.bankTask.create({
       data: {
         userId,
-        name: name.trim(),
+        name,
         durationSeconds: Math.round(durationSeconds),
         color: color || 'orange',
         tags: normalizedTags,
