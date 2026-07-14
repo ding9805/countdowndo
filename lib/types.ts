@@ -35,6 +35,7 @@ export interface BankTask {
   color: TaskColorId;
   tags: string[];
   isOneOff: boolean;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +53,7 @@ export interface BankTaskTemplate {
 export type SessionState = 'idle' | 'running' | 'paused';
 export type SessionMode = 'continuous' | 'sprint';
 export type TaskOrder = 'desc' | 'asc';
+export type TaskBankSortMode = 'recent' | 'due' | 'alpha';
 
 export function getTaskColorHex(colorId: TaskColorId | string | undefined): string {
   const found = TASK_COLORS.find((c) => c.id === colorId);

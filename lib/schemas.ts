@@ -17,6 +17,8 @@ const MAX_TAGS = 20;
 const MAX_TAG_LENGTH = 50;
 const MAX_DURATION_SECONDS = 24 * 60 * 60; // 24h ceiling — generous, but not unbounded
 
+const dueDateSchema = z.string().date();
+
 const nameSchema = z.string().trim().min(1).max(MAX_NAME_LENGTH);
 const durationSchema = z.number().finite().positive().max(MAX_DURATION_SECONDS);
 const tagsSchema = z.array(z.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS);
@@ -70,6 +72,7 @@ export const bankTaskCreateSchema = z.object({
   color: taskColorSchema.optional(),
   tags: tagsSchema.optional(),
   isOneOff: z.boolean().optional().default(false),
+  dueDate: dueDateSchema.nullable().optional(),
 });
 
 export const bankTaskUpdateSchema = z.object({
@@ -78,6 +81,7 @@ export const bankTaskUpdateSchema = z.object({
   color: taskColorSchema.optional(),
   tags: tagsSchema.optional(),
   isOneOff: z.boolean().optional(),
+  dueDate: dueDateSchema.nullable().optional(),
 });
 
 // Formats a ZodError into a single readable message for API error responses.

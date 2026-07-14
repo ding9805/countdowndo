@@ -25,12 +25,14 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (!parsed.success) {
       return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
     }
-    const { name, durationSeconds, color, tags } = parsed.data;
+    const { name, durationSeconds, color, tags, isOneOff, dueDate } = parsed.data;
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;
     if (durationSeconds !== undefined) updateData.durationSeconds = Math.round(durationSeconds);
     if (color !== undefined) updateData.color = color;
+    if (isOneOff !== undefined) updateData.isOneOff = isOneOff;
+    if (dueDate !== undefined) updateData.dueDate = dueDate;
     if (tags !== undefined) {
       const [taskRows, templateRows] = await Promise.all([
         prisma.bankTask.findMany({ where: { userId, id: { not: id } }, select: { tags: true } }),

@@ -3,9 +3,10 @@
 import React from 'react';
 import { BankTask, getTaskColorHex } from '@/lib/types';
 import { formatDuration } from '@/lib/timer-utils';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, CalendarDays } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { motion } from 'framer-motion';
+import { isOverdue, formatDueDate } from '@/lib/task-bank-utils';
 
 interface TaskBankCardProps {
   task: BankTask;
@@ -30,6 +31,14 @@ export function TaskBankCard({ task, selectable, selected, onToggleSelect, onEdi
         <p className="text-foreground font-medium break-words">{task.name}</p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-xs text-muted-foreground">{formatDuration(task.durationSeconds)}</span>
+          {task.dueDate && (
+            <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
+              isOverdue(task.dueDate) ? 'bg-destructive/15 text-destructive' : 'bg-secondary/50 text-muted-foreground'
+            }`}>
+              <CalendarDays className="w-3 h-3" />
+              {formatDueDate(task.dueDate)}
+            </span>
+          )}
           {task.tags.map((tag) => (
             <span key={tag} className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-secondary/50 text-muted-foreground">
               {tag}

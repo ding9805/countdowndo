@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { BankTask, BankTaskTemplate, TaskColorId } from '@/lib/types';
+import { BankTask, BankTaskTemplate, TaskColorId, TaskBankSortMode } from '@/lib/types';
 import { TaskBankCard } from './task-bank-card';
 import { TagFilterBar } from './tag-filter-bar';
 import { TaskBankForm } from './task-bank-form';
@@ -13,6 +13,7 @@ import { Plus, Sparkles, Archive, LogIn } from 'lucide-react';
 import { PageToggle } from '@/components/page-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { sortBankTasks, TASK_BANK_SORT_MODES } from '@/lib/task-bank-utils';
 
 export function TaskBankPage() {
   const { data: authSession, status: authStatus } = useSession() || {};
@@ -26,6 +27,7 @@ export function TaskBankPage() {
   const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [editingTask, setEditingTask] = useState<BankTask | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [sortMode, setSortMode] = useState<TaskBankSortMode>('recent');
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -48,6 +50,15 @@ export function TaskBankPage() {
     else setLoading(false);
   }, [isLoggedIn, fetchAll]);
 
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('countdowndo-bank-sort');
+      if (saved && (TASK_BANK_SORT_MODES as readonly string[]).includes(saved)) {
+        setSortMode(saved as TaskBankSortMode);
+      }
+    } catch {}
+  }, []);
+
   const allTags = useMemo(() => {
     const set = new Set<string>();
     tasks.forEach((t) => t.tags.forEach((tag) => set.add(tag)));
@@ -59,6 +70,8 @@ export function TaskBankPage() {
     return tasks.filter((t) => t.tags.some((tag) => activeTags.includes(tag)));
   }, [tasks, activeTags]);
 
+  const visibleTasks = useMemo(() => sortBankTasks(filteredTasks, sortMode), [filteredTasks, sortMode]);
+
   const toggleTag = (tag: string) => {
     setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
@@ -66,31 +79,63 @@ export function TaskBankPage() {
   const openCreate = () => { setFormMode('create'); setEditingTask(null); setFormOpen(true); };
   const openEdit = (task: BankTask) => { setFormMode('edit'); setEditingTask(task); setFormOpen(true); };
 
-  const handleFormSubmit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean }) => {
-    try {
-      if (formMode === 'create') {
-        const res = await fetch('/api/task-bank', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
-        const created = await res.json();
-        setTasks((prev) => [created, ...prev]);
-        toast.success('Task added to bank');
-      } else if (editingTask) {
-        const res = await fetch(`/api/task-bank/${editingTask.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update task');
-        const updated = await res.json();
-        setTasks((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-        toast.success('Task updated');
-      }
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Something went wrong');
+  const handleFormSubmit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
+    if (formMode === 'create') {
+      // Optimistic create: insert a temp row immediately, close the dialog,
+      // swap in the server row on success, roll back on failure — same pattern
+      // as handleDelete below.
+      const tempId = `temp-${Date.now()}`;
+      const optimistic: BankTask = {
+        id: tempId,
+        name: data.name,
+        durationSeconds: data.durationSeconds,
+        color: data.color,
+        tags: data.tags,
+        isOneOff: data.isOneOff,
+        dueDate: data.dueDate,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const prev = tasks;
+      setTasks((p) => [optimistic, ...p]);
+      void (async () => {
+        try {
+          const res = await fetch('/api/task-bank', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
+          const created = await res.json();
+          setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
+          toast.success('Task added to bank');
+        } catch (e: any) {
+          setTasks(prev);
+          toast.error(e?.message ?? 'Something went wrong');
+        }
+      })();
+    } else if (editingTask) {
+      // Optimistic edit: patch the row in place immediately, close the dialog,
+      // replace with the server row on success, roll back on failure.
+      const prev = tasks;
+      const optimistic: BankTask = { ...editingTask, ...data };
+      setTasks((p) => p.map((t) => (t.id === editingTask.id ? optimistic : t)));
+      void (async () => {
+        try {
+          const res = await fetch(`/api/task-bank/${editingTask.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+          });
+          if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update task');
+          const updated = await res.json();
+          setTasks((p) => p.map((t) => (t.id === updated.id ? updated : t)));
+          toast.success('Task updated');
+        } catch (e: any) {
+          setTasks(prev);
+          toast.error(e?.message ?? 'Something went wrong');
+        }
+      })();
     }
   };
 
@@ -108,35 +153,58 @@ export function TaskBankPage() {
   };
 
   const handleCreateTemplate = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => {
-    try {
-      const res = await fetch('/api/task-bank/templates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create template');
-      const created = await res.json();
-      setTemplates((prev) => [created, ...prev]);
-      toast.success('Template created');
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Something went wrong');
-    }
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: BankTaskTemplate = {
+      id: tempId,
+      name: data.name,
+      durationSeconds: data.durationSeconds,
+      color: data.color,
+      tags: data.tags,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const prev = templates;
+    setTemplates((p) => [optimistic, ...p]);
+    void (async () => {
+      try {
+        const res = await fetch('/api/task-bank/templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create template');
+        const created = await res.json();
+        setTemplates((p) => p.map((t) => (t.id === tempId ? created : t)));
+        toast.success('Template created');
+      } catch (e: any) {
+        setTemplates(prev);
+        toast.error(e?.message ?? 'Something went wrong');
+      }
+    })();
   };
 
   const handleUpdateTemplate = async (id: string, data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => {
-    try {
-      const res = await fetch(`/api/task-bank/templates/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update template');
-      const updated = await res.json();
-      setTemplates((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      toast.success('Template updated');
-    } catch (e: any) {
-      toast.error(e?.message ?? 'Something went wrong');
-    }
+    const prev = templates;
+    const existing = templates.find((t) => t.id === id);
+    if (!existing) return;
+    const optimistic: BankTaskTemplate = { ...existing, ...data };
+    setTemplates((p) => p.map((t) => (t.id === id ? optimistic : t)));
+    void (async () => {
+      try {
+        const res = await fetch(`/api/task-bank/templates/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update template');
+        const updated = await res.json();
+        setTemplates((p) => p.map((t) => (t.id === updated.id ? updated : t)));
+        toast.success('Template updated');
+      } catch (e: any) {
+        setTemplates(prev);
+        toast.error(e?.message ?? 'Something went wrong');
+      }
+    })();
   };
 
   const handleDeleteTemplate = async (id: string) => {
@@ -200,9 +268,24 @@ export function TaskBankPage() {
         ) : (
           <>
             <div className="flex items-center justify-between gap-4 mb-6 flex-wrap">
-              <p className="text-sm text-muted-foreground">
-                {tasks.length} task{tasks.length !== 1 ? 's' : ''} in your bank
-              </p>
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-muted-foreground">
+                  {tasks.length} task{tasks.length !== 1 ? 's' : ''} in your bank
+                </p>
+                <select
+                  value={sortMode}
+                  onChange={(e) => {
+                    const next = e.target.value as TaskBankSortMode;
+                    setSortMode(next);
+                    try { localStorage.setItem('countdowndo-bank-sort', next); } catch {}
+                  }}
+                  className="text-xs px-2 py-1.5 rounded-lg bg-secondary/60 border border-border/50 text-foreground focus:outline-none focus:border-primary/50"
+                >
+                  <option value="recent">Recently added</option>
+                  <option value="due">Due date</option>
+                  <option value="alpha">A–Z</option>
+                </select>
+              </div>
               <Button onClick={openCreate} className="gradient-primary hover:opacity-90 text-primary-foreground font-semibold shadow-md">
                 <Plus className="w-4 h-4 mr-1.5" />
                 New Task
@@ -215,7 +298,7 @@ export function TaskBankPage() {
 
             {loading ? (
               <p className="text-sm text-muted-foreground text-center py-16">Loading…</p>
-            ) : filteredTasks.length === 0 ? (
+            ) : visibleTasks.length === 0 ? (
               <div className="text-center py-16">
                 <p className="text-sm text-muted-foreground">
                   {tasks.length === 0
@@ -226,7 +309,7 @@ export function TaskBankPage() {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <AnimatePresence initial={false}>
-                  {filteredTasks.map((task) => (
+                  {visibleTasks.map((task) => (
                     <TaskBankCard key={task.id} task={task} onEdit={openEdit} onDelete={handleDelete} />
                   ))}
                 </AnimatePresence>

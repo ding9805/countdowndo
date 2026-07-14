@@ -9,7 +9,7 @@ import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
 import { TagInput, mergePendingTag } from './tag-input';
 import { formatDuration } from '@/lib/timer-utils';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, X } from 'lucide-react';
 
 interface TaskBankFormProps {
   open: boolean;
@@ -18,10 +18,10 @@ interface TaskBankFormProps {
   initialTask?: BankTask | null;
   templates: BankTaskTemplate[];
   existingTags: string[];
-  onSubmit: (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean }) => Promise<void> | void;
+  onSubmit: (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => Promise<void> | void;
 }
 
-const DEFAULTS = { name: '', durationSeconds: 300, color: 'orange' as TaskColorId, tags: [] as string[], isOneOff: false };
+const DEFAULTS = { name: '', durationSeconds: 300, color: 'orange' as TaskColorId, tags: [] as string[], isOneOff: false, dueDate: '' };
 
 export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates, existingTags, onSubmit }: TaskBankFormProps) {
   const [name, setName] = useState(DEFAULTS.name);
@@ -29,6 +29,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
   const [color, setColor] = useState<TaskColorId>(DEFAULTS.color);
   const [tags, setTags] = useState<string[]>(DEFAULTS.tags);
   const [isOneOff, setIsOneOff] = useState(DEFAULTS.isOneOff);
+  const [dueDate, setDueDate] = useState(DEFAULTS.dueDate);
   const [tagInput, setTagInput] = useState('');
   const [templateId, setTemplateId] = useState<string>('');
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -42,12 +43,14 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
       setColor(initialTask.color);
       setTags(initialTask.tags);
       setIsOneOff(initialTask.isOneOff);
+      setDueDate(initialTask.dueDate ?? '');
     } else {
       setName(DEFAULTS.name);
       setDurationSeconds(DEFAULTS.durationSeconds);
       setColor(DEFAULTS.color);
       setTags(DEFAULTS.tags);
       setIsOneOff(DEFAULTS.isOneOff);
+      setDueDate(DEFAULTS.dueDate);
     }
     setTagInput('');
     setTemplateId('');
@@ -70,7 +73,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     const finalTags = mergePendingTag(tags, tagInput);
     setSubmitting(true);
     try {
-      await onSubmit({ name: trimmed, durationSeconds, color, tags: finalTags, isOneOff });
+      await onSubmit({ name: trimmed, durationSeconds, color, tags: finalTags, isOneOff, dueDate: dueDate || null });
       onOpenChange(false);
     } finally {
       setSubmitting(false);
@@ -145,6 +148,27 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Tags</label>
             <TagInput tags={tags} onChange={setTags} existingTags={existingTags} inputValue={tagInput} onInputChange={setTagInput} />
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Due date (optional)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="flex-1 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+              />
+              {dueDate && (
+                <button
+                  type="button"
+                  onClick={() => setDueDate('')}
+                  className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
