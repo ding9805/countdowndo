@@ -6,7 +6,7 @@ import { formatDuration } from '@/lib/timer-utils';
 import { Pencil, Trash2, CalendarDays, Zap } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { motion } from 'framer-motion';
-import { isOverdue, formatDueDate } from '@/lib/task-bank-utils';
+import { isOverdue, formatDueDate, dueDayDiff } from '@/lib/task-bank-utils';
 
 interface TaskBankCardProps {
   task: BankTask;
@@ -18,6 +18,7 @@ interface TaskBankCardProps {
 }
 
 export function TaskBankCard({ task, selectable, selected, onToggleSelect, onEdit, onDelete }: TaskBankCardProps) {
+  const dueToday = !!task.dueDate && dueDayDiff(task.dueDate) === 0;
   const content = (
     <>
       {selectable && (
@@ -86,7 +87,7 @@ export function TaskBankCard({ task, selectable, selected, onToggleSelect, onEdi
       exit={{ opacity: 0 }}
       className={`glass-card rounded-xl overflow-hidden flex items-center gap-3 px-4 py-3 transition-all ${
         selectable ? 'cursor-pointer' : ''
-      } ${selected ? 'ring-2 ring-primary/60' : ''}`}
+      } ${selected ? 'ring-2 ring-primary/60' : ''} ${dueToday ? 'border-2 border-red-500' : ''}`}
       style={{ boxShadow: 'var(--shadow-sm)', borderLeft: `3px solid ${getTaskColorHex(task.color)}` }}
     >
       {content}
