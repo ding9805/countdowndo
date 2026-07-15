@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, BankTask, SessionState, SessionMode, TaskOrder, TaskColorId } from '@/lib/types';
-import { generateId, recalculateCumulativeTimes } from '@/lib/timer-utils';
+import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
 import { playTimerSound } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { toast } from 'sonner';
@@ -35,6 +35,10 @@ export function useSessionEngine(isLoggedIn: boolean) {
   // happened in between — see the 409 handling in saveSessionToDb.
   const lastKnownUpdatedAtRef = useRef<string | null>(null);
   const initialLoadDone = useRef(false);
+  // Bank task ids that should be swept at session end. In continuous mode a
+  // task can be removed mid-session (logged as done but filtered out of the
+  // list), so it wouldn't be caught by a simple "isDone" scan at stop time.
+  const pendingOneOffBankTaskIdsRef = useRef<Set<string>>(new Set());
 
   // Load taskOrder from localStorage on mount + set initial planning start time
   useEffect(() => {
@@ -375,6 +379,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
     }
     soundPlayedRef.current = new Set();
     sessionSavedToDbRef.current = false;
+    pendingOneOffBankTaskIdsRef.current.clear();
     const startMs = Date.now();
     setSessionStartTime(startMs);
     setPausedElapsed(0);
@@ -467,13 +472,21 @@ export function useSessionEngine(isLoggedIn: boolean) {
     return idMap;
   }, [isLoggedIn]);
 
-  // Deletes a one-off bank task when it's completed or removed from session
-  const deleteOneOffBankTask = useCallback(async (bankTaskId: string) => {
-    if (!isLoggedIn || !bankTaskId) return;
+  // Deletes bank tasks that are currently one-off on the server. Called as a
+  // session-end sweep so check-off-time failures get retried and un-checking a
+  // task mid-session still leaves the bank row intact.
+  const completeOneOffBankTasks = useCallback(async (bankTaskIds: string[]) => {
+    const ids = bankTaskIds.filter(Boolean);
+    if (!isLoggedIn || ids.length === 0) return;
     try {
-      await fetch(`/api/task-bank/${bankTaskId}`, { method: 'DELETE' });
+      await fetch('/api/task-bank/complete-one-offs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankTaskIds: ids }),
+      });
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     } catch (e) {
-      console.error('Failed to delete one-off bank task:', e);
+      console.error('Failed to complete one-off bank tasks:', e);
     }
   }, [isLoggedIn]);
 
@@ -505,6 +518,16 @@ export function useSessionEngine(isLoggedIn: boolean) {
     // Trigger celebration animation and sound
     celebrate();
 
+    // Snapshot the done tasks before clearing state so we can sweep their bank
+    // rows at session end. This is both the authoritative cleanup moment and a
+    // retry for any check-off that failed earlier.
+    const doneBankTaskIds = (tasks ?? [])
+      .filter((t: Task) => t?.isDone && t?.bankTaskId)
+      .map((t: Task) => t.bankTaskId as string);
+    const bankTaskIdsToSweep = Array.from(
+      new Set([...doneBankTaskIds, ...pendingOneOffBankTaskIdsRef.current])
+    );
+
     setSessionState('idle');
     setSessionStartTime(null);
     setPausedElapsed(0);
@@ -521,6 +544,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
       );
     });
     deleteSessionFromDb();
+    completeOneOffBankTasks(bankTaskIdsToSweep);
+    pendingOneOffBankTaskIdsRef.current.clear();
   };
 
   // Marking done and un-marking are handled outside the setTasks updater (rather than
@@ -553,11 +578,6 @@ export function useSessionEngine(isLoggedIn: boolean) {
     );
     setTasks(provisional);
     saveSessionToDb(provisional);
-
-    // If this is a one-off bank task, delete it from the bank
-    if (task.isOneOffBankTask && task.bankTaskId) {
-      deleteOneOffBankTask(task.bankTaskId);
-    }
 
     logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
       const logId = idMap[taskId];
@@ -592,7 +612,9 @@ export function useSessionEngine(isLoggedIn: boolean) {
         }
 
         if (position === 'top') {
-          // Prepend and recalculate all cumulative times
+          // Prepend and recalculate all cumulative times while preserving the
+          // continuous session envelope, so existing deadlines don't collapse
+          // toward zero mid-session.
           const newTask: Task = {
             id: generateId(),
             name,
@@ -603,8 +625,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
             bonusSeconds: 0,
             color,
           };
-          const updated = recalculateCumulativeTimes([newTask, ...list]);
           const newTotalSeconds = effectiveTotal + durationSeconds;
+          const { tasks: updated } = recalculateCumulativeTimesWithEnvelope([newTask, ...list], newTotalSeconds);
           setSessionTotalSeconds(newTotalSeconds);
           saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
           return updated;
@@ -726,9 +748,10 @@ export function useSessionEngine(isLoggedIn: boolean) {
       if (deletedTask && !deletedTask.isDone) {
         logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
       }
-      // If this is a one-off bank task, delete it from the bank
-      if (deletedTask?.isOneOffBankTask && deletedTask?.bankTaskId) {
-        deleteOneOffBankTask(deletedTask.bankTaskId);
+      // Queue any bank task id for the session-end sweep, since the task is
+      // leaving the list and won't be caught by the isDone scan at stop time.
+      if (deletedTask?.bankTaskId) {
+        pendingOneOffBankTaskIdsRef.current.add(deletedTask.bankTaskId);
       }
       return;
     }
@@ -739,10 +762,6 @@ export function useSessionEngine(isLoggedIn: boolean) {
     const updated = recalculateCumulativeTimes(filtered);
     setTasks(updated);
     saveSessionToDb(updated);
-    // If this is a one-off bank task, delete it from the bank
-    if (deletedTask?.isOneOffBankTask && deletedTask?.bankTaskId) {
-      deleteOneOffBankTask(deletedTask.bankTaskId);
-    }
   };
 
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {
@@ -802,8 +821,6 @@ export function useSessionEngine(isLoggedIn: boolean) {
       // CONTINUOUS MODE: Preserve sessionTotalSeconds envelope
       // Use setTasks callback to avoid stale closure, and save immediately
       setTasks((prevTasks: Task[]) => {
-        const sumOfDurations = (newTasks ?? []).reduce((sum: number, t: Task) => sum + (t?.durationSeconds ?? 0), 0);
-
         // Guard: if sessionTotalSeconds is 0/unset (legacy session or migration),
         // derive it from the last task's cumulative time in prevTasks
         let effectiveTotal = sessionTotalSeconds;
@@ -811,27 +828,16 @@ export function useSessionEngine(isLoggedIn: boolean) {
           effectiveTotal = prevTasks[prevTasks.length - 1]?.cumulativeSeconds ?? 0;
           console.warn('[handleReorder] sessionTotalSeconds was 0, derived from prevTasks:', effectiveTotal);
         }
-        // Additional guard: effectiveTotal must be at least sumOfDurations
-        if (effectiveTotal < sumOfDurations) {
-          effectiveTotal = sumOfDurations;
-          console.warn('[handleReorder] effectiveTotal < sumOfDurations, clamped to:', effectiveTotal);
-        }
 
-        const baseOffset = effectiveTotal - sumOfDurations;
-
-        let cumulative = baseOffset;
-        const updated = (newTasks ?? []).map((task: Task) => {
-          cumulative += task?.durationSeconds ?? 0;
-          return { ...(task ?? {}), cumulativeSeconds: cumulative } as Task;
-        });
+        const { tasks: updated, effectiveEnvelopeSeconds } = recalculateCumulativeTimesWithEnvelope(newTasks, effectiveTotal);
 
         // If sessionTotalSeconds was wrong, fix it in state too
-        if (sessionTotalSeconds !== effectiveTotal) {
-          setSessionTotalSeconds(effectiveTotal);
+        if (sessionTotalSeconds !== effectiveEnvelopeSeconds) {
+          setSessionTotalSeconds(effectiveEnvelopeSeconds);
         }
 
         // Save immediately (bypass debounce to prevent race)
-        saveSessionToDbImmediate(updated, effectiveTotal);
+        saveSessionToDbImmediate(updated, effectiveEnvelopeSeconds);
         return updated;
       });
       return;

@@ -84,6 +84,10 @@ export const bankTaskUpdateSchema = z.object({
   dueDate: dueDateSchema.nullable().optional(),
 });
 
+export const completeOneOffBankTasksSchema = z.object({
+  bankTaskIds: z.array(z.string().min(1)).min(1).max(MAX_COMPLETION_LOG_BATCH),
+});
+
 // Formats a ZodError into a single readable message for API error responses.
 export function formatZodError(error: z.ZodError): string {
   const first = error.issues[0];

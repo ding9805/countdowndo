@@ -39,6 +39,18 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, confirmLab
       .finally(() => setLoading(false));
   }, [open, isLoggedIn]);
 
+  useEffect(() => {
+    const handler = () => {
+      if (!open || !isLoggedIn) return;
+      fetch('/api/task-bank')
+        .then((res) => (res.ok ? res.json() : []))
+        .then(setTasks)
+        .catch(() => setTasks([]));
+    };
+    window.addEventListener('bank-tasks-updated', handler);
+    return () => window.removeEventListener('bank-tasks-updated', handler);
+  }, [open, isLoggedIn]);
+
   const allTags = useMemo(() => {
     const set = new Set<string>();
     tasks.forEach((t) => t.tags.forEach((tag) => set.add(tag)));

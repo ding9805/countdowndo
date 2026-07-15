@@ -51,6 +51,12 @@ export function TaskBankPage() {
   }, [isLoggedIn, fetchAll]);
 
   useEffect(() => {
+    const handler = () => { if (isLoggedIn) fetchAll(); };
+    window.addEventListener('bank-tasks-updated', handler);
+    return () => window.removeEventListener('bank-tasks-updated', handler);
+  }, [isLoggedIn, fetchAll]);
+
+  useEffect(() => {
     try {
       const saved = localStorage.getItem('countdowndo-bank-sort');
       if (saved && (TASK_BANK_SORT_MODES as readonly string[]).includes(saved)) {
