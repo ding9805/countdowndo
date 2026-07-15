@@ -9,7 +9,7 @@ import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
 import { TagInput, mergePendingTag } from './tag-input';
 import { formatDuration } from '@/lib/timer-utils';
-import { Sparkles, X } from 'lucide-react';
+import { Sparkles, Plus, X } from 'lucide-react';
 
 interface TaskBankFormProps {
   open: boolean;
@@ -19,11 +19,14 @@ interface TaskBankFormProps {
   templates: BankTaskTemplate[];
   existingTags: string[];
   onSubmit: (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => Promise<void> | void;
+  // When true, render the form inline (no dialog) for create mode. Always shown,
+  // resets fields after submit instead of closing. Edit still uses the dialog.
+  inline?: boolean;
 }
 
 const DEFAULTS = { name: '', durationSeconds: 300, color: 'orange' as TaskColorId, tags: [] as string[], isOneOff: false, dueDate: '' };
 
-export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates, existingTags, onSubmit }: TaskBankFormProps) {
+export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates, existingTags, onSubmit, inline }: TaskBankFormProps) {
   const [name, setName] = useState(DEFAULTS.name);
   const [durationSeconds, setDurationSeconds] = useState(DEFAULTS.durationSeconds);
   const [color, setColor] = useState<TaskColorId>(DEFAULTS.color);
@@ -36,6 +39,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (inline) return;
     if (!open) return;
     if (mode === 'edit' && initialTask) {
       setName(initialTask.name);
@@ -55,7 +59,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     setTagInput('');
     setTemplateId('');
     setShowTimePicker(false);
-  }, [open, mode, initialTask]);
+  }, [open, mode, initialTask, inline]);
 
   const applyTemplate = (id: string) => {
     setTemplateId(id);
@@ -74,11 +78,154 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     setSubmitting(true);
     try {
       await onSubmit({ name: trimmed, durationSeconds, color, tags: finalTags, isOneOff, dueDate: dueDate || null });
-      onOpenChange(false);
+      if (inline) {
+        // Reset to defaults so the next task starts blank.
+        setName(DEFAULTS.name);
+        setDurationSeconds(DEFAULTS.durationSeconds);
+        setColor(DEFAULTS.color);
+        setTags(DEFAULTS.tags);
+        setIsOneOff(DEFAULTS.isOneOff);
+        setDueDate(DEFAULTS.dueDate);
+        setTagInput('');
+        setTemplateId('');
+        setShowTimePicker(false);
+      } else {
+        onOpenChange(false);
+      }
     } finally {
       setSubmitting(false);
     }
   };
+
+  // Suffix the checkbox id by mode so the inline form and the edit dialog —
+  // which can both be mounted at once — never share a duplicate HTML id.
+  const oneOffId = `isOneOff-${mode}${inline ? '-inline' : ''}`;
+
+  const fields = (
+    <div className="space-y-4">
+      {mode === 'create' && templates.length > 0 && (
+        <div>
+          <label className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+            <Sparkles className="w-3.5 h-3.5" />
+            Start from a template (optional)
+          </label>
+          <select
+            value={templateId}
+            onChange={(e) => applyTemplate(e.target.value)}
+            className="w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
+          >
+            <option value="">No template — start blank</option>
+            {templates.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      <div>
+        <label className="text-xs text-muted-foreground mb-1.5 block">Task name</label>
+        <Input
+          autoFocus
+          placeholder="e.g., Vacuum living room"
+          value={name}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value.slice(0, 100))}
+          maxLength={100}
+          className="bg-secondary/60 border-border/50"
+        />
+      </div>
+
+      <div>
+        <label className="text-xs text-muted-foreground mb-1.5 block">Color</label>
+        <ColorPicker value={color} onChange={setColor} />
+      </div>
+
+      <div>
+        <button
+          type="button"
+          onClick={() => setShowTimePicker(!showTimePicker)}
+          className="w-full flex items-center justify-between bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground hover:border-primary/50 transition-colors"
+        >
+          <span className="text-xs text-muted-foreground">Duration</span>
+          <span className="font-medium">{formatDuration(durationSeconds)}</span>
+        </button>
+        {showTimePicker && (
+          <div className="bg-secondary/20 rounded-xl p-3 mt-2 flex justify-center border border-border/30">
+            <TimePicker
+              onSelect={setDurationSeconds}
+              initialHours={Math.floor(durationSeconds / 3600)}
+              initialMinutes={Math.floor((durationSeconds % 3600) / 60)}
+              initialSeconds={durationSeconds % 60}
+            />
+          </div>
+        )}
+      </div>
+
+      <div>
+        <label className="text-xs text-muted-foreground mb-1.5 block">Tags</label>
+        <TagInput tags={tags} onChange={setTags} existingTags={existingTags} inputValue={tagInput} onInputChange={setTagInput} />
+      </div>
+
+      <div>
+        <label className="text-xs text-muted-foreground mb-1.5 block">Due date (optional)</label>
+        <div className="flex items-center gap-2">
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="flex-1 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+          />
+          {dueDate && (
+            <button
+              type="button"
+              onClick={() => setDueDate('')}
+              className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
+        <input
+          type="checkbox"
+          id={oneOffId}
+          checked={isOneOff}
+          onChange={(e) => setIsOneOff(e.target.checked)}
+          className="w-4 h-4 rounded border-border/50 cursor-pointer"
+        />
+        <label htmlFor={oneOffId} className="text-xs text-muted-foreground cursor-pointer flex-1">
+          <span className="font-medium text-foreground">One-off task</span>
+          <br />
+          Delete from bank when completed or removed from session
+        </label>
+      </div>
+    </div>
+  );
+
+  if (inline) {
+    return (
+      <div className="glass-card rounded-xl p-4 sm:p-5 mb-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center shrink-0">
+            <Plus className="w-4 h-4 text-primary-foreground" />
+          </div>
+          <h2 className="font-display text-sm font-semibold text-foreground">Add a task</h2>
+        </div>
+        {fields}
+        <div className="flex justify-end pt-1">
+          <Button
+            onClick={handleSubmit}
+            disabled={!name.trim() || submitting}
+            className="gradient-primary hover:opacity-90 text-primary-foreground font-semibold shadow-md"
+          >
+            <Plus className="w-4 h-4 mr-1.5" />
+            {submitting ? 'Adding…' : 'Add Task'}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,107 +233,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'New Task' : 'Edit Task'}</DialogTitle>
         </DialogHeader>
-
-        <div className="space-y-4">
-          {mode === 'create' && templates.length > 0 && (
-            <div>
-              <label className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5" />
-                Start from a template (optional)
-              </label>
-              <select
-                value={templateId}
-                onChange={(e) => applyTemplate(e.target.value)}
-                className="w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
-              >
-                <option value="">No template — start blank</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Task name</label>
-            <Input
-              autoFocus
-              placeholder="e.g., Vacuum living room"
-              value={name}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value.slice(0, 100))}
-              maxLength={100}
-              className="bg-secondary/60 border-border/50"
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Color</label>
-            <ColorPicker value={color} onChange={setColor} />
-          </div>
-
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowTimePicker(!showTimePicker)}
-              className="w-full flex items-center justify-between bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground hover:border-primary/50 transition-colors"
-            >
-              <span className="text-xs text-muted-foreground">Duration</span>
-              <span className="font-medium">{formatDuration(durationSeconds)}</span>
-            </button>
-            {showTimePicker && (
-              <div className="bg-secondary/20 rounded-xl p-3 mt-2 flex justify-center border border-border/30">
-                <TimePicker
-                  onSelect={setDurationSeconds}
-                  initialHours={Math.floor(durationSeconds / 3600)}
-                  initialMinutes={Math.floor((durationSeconds % 3600) / 60)}
-                  initialSeconds={durationSeconds % 60}
-                />
-              </div>
-            )}
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Tags</label>
-            <TagInput tags={tags} onChange={setTags} existingTags={existingTags} inputValue={tagInput} onInputChange={setTagInput} />
-          </div>
-
-          <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Due date (optional)</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => setDueDate(e.target.value)}
-                className="flex-1 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:dark]"
-              />
-              {dueDate && (
-                <button
-                  type="button"
-                  onClick={() => setDueDate('')}
-                  className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
-            <input
-              type="checkbox"
-              id="isOneOff"
-              checked={isOneOff}
-              onChange={(e) => setIsOneOff(e.target.checked)}
-              className="w-4 h-4 rounded border-border/50 cursor-pointer"
-            />
-            <label htmlFor="isOneOff" className="text-xs text-muted-foreground cursor-pointer flex-1">
-              <span className="font-medium text-foreground">One-off task</span>
-              <br />
-              Delete from bank when completed or removed from session
-            </label>
-          </div>
-        </div>
-
+        {fields}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button

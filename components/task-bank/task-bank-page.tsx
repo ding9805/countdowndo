@@ -9,7 +9,7 @@ import { TagFilterBar } from './tag-filter-bar';
 import { TaskBankForm } from './task-bank-form';
 import { TemplateManagerDialog } from './template-manager-dialog';
 import { Button } from '@/components/ui/button';
-import { Plus, Sparkles, Archive, LogIn } from 'lucide-react';
+import { Sparkles, Archive, LogIn } from 'lucide-react';
 import { PageToggle } from '@/components/page-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -24,7 +24,6 @@ export function TaskBankPage() {
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   const [formOpen, setFormOpen] = useState(false);
-  const [formMode, setFormMode] = useState<'create' | 'edit'>('create');
   const [editingTask, setEditingTask] = useState<BankTask | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [sortMode, setSortMode] = useState<TaskBankSortMode>('recent');
@@ -82,67 +81,66 @@ export function TaskBankPage() {
     setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
 
-  const openCreate = () => { setFormMode('create'); setEditingTask(null); setFormOpen(true); };
-  const openEdit = (task: BankTask) => { setFormMode('edit'); setEditingTask(task); setFormOpen(true); };
+  const openEdit = (task: BankTask) => { setEditingTask(task); setFormOpen(true); };
 
-  const handleFormSubmit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
-    if (formMode === 'create') {
-      // Optimistic create: insert a temp row immediately, close the dialog,
-      // swap in the server row on success, roll back on failure — same pattern
-      // as handleDelete below.
-      const tempId = `temp-${Date.now()}`;
-      const optimistic: BankTask = {
-        id: tempId,
-        name: data.name,
-        durationSeconds: data.durationSeconds,
-        color: data.color,
-        tags: data.tags,
-        isOneOff: data.isOneOff,
-        dueDate: data.dueDate,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      const prev = tasks;
-      setTasks((p) => [optimistic, ...p]);
-      void (async () => {
-        try {
-          const res = await fetch('/api/task-bank', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          });
-          if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
-          const created = await res.json();
-          setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
-          toast.success('Task added to bank');
-        } catch (e: any) {
-          setTasks(prev);
-          toast.error(e?.message ?? 'Something went wrong');
-        }
-      })();
-    } else if (editingTask) {
-      // Optimistic edit: patch the row in place immediately, close the dialog,
-      // replace with the server row on success, roll back on failure.
-      const prev = tasks;
-      const optimistic: BankTask = { ...editingTask, ...data };
-      setTasks((p) => p.map((t) => (t.id === editingTask.id ? optimistic : t)));
-      void (async () => {
-        try {
-          const res = await fetch(`/api/task-bank/${editingTask.id}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          });
-          if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update task');
-          const updated = await res.json();
-          setTasks((p) => p.map((t) => (t.id === updated.id ? updated : t)));
-          toast.success('Task updated');
-        } catch (e: any) {
-          setTasks(prev);
-          toast.error(e?.message ?? 'Something went wrong');
-        }
-      })();
-    }
+  const handleCreate = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
+    // Optimistic create: insert a temp row immediately, swap in the server row
+    // on success, roll back on failure — same pattern as handleDelete below.
+    const tempId = `temp-${Date.now()}`;
+    const optimistic: BankTask = {
+      id: tempId,
+      name: data.name,
+      durationSeconds: data.durationSeconds,
+      color: data.color,
+      tags: data.tags,
+      isOneOff: data.isOneOff,
+      dueDate: data.dueDate,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const prev = tasks;
+    setTasks((p) => [optimistic, ...p]);
+    void (async () => {
+      try {
+        const res = await fetch('/api/task-bank', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
+        const created = await res.json();
+        setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
+        toast.success('Task added to bank');
+      } catch (e: any) {
+        setTasks(prev);
+        toast.error(e?.message ?? 'Something went wrong');
+      }
+    })();
+  };
+
+  const handleEdit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
+    if (!editingTask) return;
+    // Optimistic edit: patch the row in place immediately, close the dialog,
+    // replace with the server row on success, roll back on failure.
+    const prev = tasks;
+    const optimistic: BankTask = { ...editingTask, ...data };
+    setTasks((p) => p.map((t) => (t.id === editingTask.id ? optimistic : t)));
+    void (async () => {
+      try {
+        const res = await fetch(`/api/task-bank/${editingTask.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
+        });
+        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to update task');
+        const updated = await res.json();
+        setTasks((p) => p.map((t) => (t.id === updated.id ? updated : t)));
+        toast.success('Task updated');
+      } catch (e: any) {
+        setTasks(prev);
+        toast.error(e?.message ?? 'Something went wrong');
+      }
+    })();
   };
 
   const handleDelete = async (id: string) => {
@@ -292,11 +290,17 @@ export function TaskBankPage() {
                   <option value="alpha">A–Z</option>
                 </select>
               </div>
-              <Button onClick={openCreate} className="gradient-primary hover:opacity-90 text-primary-foreground font-semibold shadow-md">
-                <Plus className="w-4 h-4 mr-1.5" />
-                New Task
-              </Button>
             </div>
+
+            <TaskBankForm
+              inline
+              mode="create"
+              open={false}
+              onOpenChange={() => {}}
+              templates={templates}
+              existingTags={allTags}
+              onSubmit={handleCreate}
+            />
 
             <div className="mb-6">
               <TagFilterBar allTags={allTags} activeTags={activeTags} onToggle={toggleTag} onClear={() => setActiveTags([])} />
@@ -328,11 +332,11 @@ export function TaskBankPage() {
       <TaskBankForm
         open={formOpen}
         onOpenChange={setFormOpen}
-        mode={formMode}
+        mode="edit"
         initialTask={editingTask}
         templates={templates}
         existingTags={allTags}
-        onSubmit={handleFormSubmit}
+        onSubmit={handleEdit}
       />
 
       <TemplateManagerDialog
