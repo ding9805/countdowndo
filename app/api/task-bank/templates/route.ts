@@ -42,13 +42,6 @@ export async function POST(req: NextRequest) {
     }
     const userId = (session.user as any).id;
 
-    // Verify the session's user still exists to prevent foreign key violations
-    // (e.g. a stale session whose account was deleted).
-    const userExists = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
-    if (!userExists) {
-      return NextResponse.json({ error: 'Your session is no longer valid. Please log in again.' }, { status: 401 });
-    }
-
     const body = await req.json();
     const parsed = bankTaskCreateSchema.safeParse(body);
     if (!parsed.success) {
@@ -56,20 +49,34 @@ export async function POST(req: NextRequest) {
     }
     const { name, durationSeconds, color, tags } = parsed.data;
 
-    const corpus = await getUserTagCorpus(userId);
-    const normalizedTags = normalizeTags(corpus, tags ?? []);
+    // Only fetch the tag corpus when tags were actually provided — the common
+    // case (no tags) skips two findMany round-trips entirely.
+    const normalizedTags = tags && tags.length > 0
+      ? normalizeTags(await getUserTagCorpus(userId), tags)
+      : [];
 
-    const template = await prisma.bankTaskTemplate.create({
-      data: {
-        userId,
-        name,
-        durationSeconds: Math.round(durationSeconds),
-        color: color || 'orange',
-        tags: normalizedTags,
-      },
-    });
+    try {
+      const template = await prisma.bankTaskTemplate.create({
+        data: {
+          userId,
+          name,
+          durationSeconds: Math.round(durationSeconds),
+          color: color || 'orange',
+          tags: normalizedTags,
+        },
+      });
 
-    return NextResponse.json(template);
+      return NextResponse.json(template);
+    } catch (createError: any) {
+      // P2003 = foreign-key constraint violation. If the session's user was
+      // deleted between the JWT issuing and this insert, the FK on userId
+      // fails here — same end state as the old pre-check, just one fewer
+      // round-trip in the common case.
+      if (createError?.code === 'P2003') {
+        return NextResponse.json({ error: 'Your session is no longer valid. Please log in again.' }, { status: 401 });
+      }
+      throw createError;
+    }
   } catch (error: any) {
     console.error('POST /api/task-bank/templates error:', error);
     return NextResponse.json({ error: 'Failed to create template' }, { status: 500 });
