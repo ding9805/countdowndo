@@ -303,29 +303,31 @@ export function TaskBankPage() {
                 onSubmit={handleCreate}
               />
 
-            <div className="lg:col-start-2 mb-6">
-              <TagFilterBar allTags={allTags} activeTags={activeTags} onToggle={toggleTag} onClear={() => setActiveTags([])} />
-            </div>
+            <div className="min-w-0">
+              <div className="mb-6">
+                <TagFilterBar allTags={allTags} activeTags={activeTags} onToggle={toggleTag} onClear={() => setActiveTags([])} />
+              </div>
 
-            {loading ? (
-              <p className="text-sm text-muted-foreground text-center py-16 lg:col-start-2">Loading…</p>
-            ) : visibleTasks.length === 0 ? (
-              <div className="text-center py-16 lg:col-start-2">
-                <p className="text-sm text-muted-foreground">
-                  {tasks.length === 0
-                    ? 'No tasks in your bank yet. Create one to get started.'
-                    : 'No tasks match the selected tags.'}
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3 lg:col-start-2">
-                <AnimatePresence initial={false}>
-                  {visibleTasks.map((task) => (
-                    <TaskBankCard key={task.id} task={task} onEdit={openEdit} onDelete={handleDelete} />
-                  ))}
-                </AnimatePresence>
-              </div>
-            )}
+              {loading ? (
+                <p className="text-sm text-muted-foreground text-center py-16">Loading…</p>
+              ) : visibleTasks.length === 0 ? (
+                <div className="text-center py-16">
+                  <p className="text-sm text-muted-foreground">
+                    {tasks.length === 0
+                      ? 'No tasks in your bank yet. Create one to get started.'
+                      : 'No tasks match the selected tags.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">
+                  <AnimatePresence initial={false}>
+                    {visibleTasks.map((task) => (
+                      <TaskBankCard key={task.id} task={task} onEdit={openEdit} onDelete={handleDelete} />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              )}
+            </div>
             </div>
           </>
         )}
