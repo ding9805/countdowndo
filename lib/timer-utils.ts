@@ -12,6 +12,33 @@ export function recalculateCumulativeTimes(tasks: Task[]): Task[] {
   });
 }
 
+/**
+ * Re-derive cumulative times while preserving a continuous session's envelope.
+ *
+ * In continuous mode the session end time can be larger than the sum of task
+ * durations (because of deleted/completed tasks or added buffer time). Instead
+ * of anchoring every cumulative at zero, this anchors the first task at
+ * `envelopeSeconds - sumOfDurations` so the last task ends exactly at the
+ * envelope.
+ */
+export function recalculateCumulativeTimesWithEnvelope(
+  tasks: Task[],
+  envelopeSeconds: number
+): { tasks: Task[]; effectiveEnvelopeSeconds: number } {
+  const sumOfDurations = (tasks ?? []).reduce(
+    (sum: number, t: Task) => sum + (t?.durationSeconds ?? 0),
+    0
+  );
+  const effectiveEnvelope = Math.max(sumOfDurations, envelopeSeconds);
+  const baseOffset = effectiveEnvelope - sumOfDurations;
+  let cumulative = baseOffset;
+  const updated = (tasks ?? []).map((task: Task) => {
+    cumulative += task?.durationSeconds ?? 0;
+    return { ...(task ?? {}), cumulativeSeconds: cumulative } as Task;
+  });
+  return { tasks: updated, effectiveEnvelopeSeconds: effectiveEnvelope };
+}
+
 export function formatTime(totalSeconds: number): string {
   const abs = Math.abs(totalSeconds ?? 0);
   const hours = Math.floor(abs / 3600);
