@@ -14,6 +14,10 @@ export async function POST(request: NextRequest) {
     if (!password || typeof password !== 'string' || password.length < 6) {
       return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 });
     }
+    // bcrypt only uses the first 72 bytes — same cap as signup.
+    if (password.length > 72) {
+      return NextResponse.json({ error: 'Password must be at most 72 characters' }, { status: 400 });
+    }
 
     // Find user with this token that hasn't expired
     const user = await prisma.user.findFirst({

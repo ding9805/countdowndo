@@ -56,7 +56,7 @@ export const activeSessionPayloadSchema = z.object({
 const completionLogEntrySchema = z.object({
   name: nameSchema,
   durationSeconds: durationSchema,
-  completedAt: z.string().datetime({ offset: true }).optional().or(z.string().optional()),
+  completedAt: z.string().datetime({ offset: true }).optional(),
   color: taskColorSchema.optional(),
 });
 
@@ -96,6 +96,15 @@ export const completeOneOffBankTasksSchema = z.object({
 export const checkOneOffBankTasksSchema = z.object({
   bankTaskIds: z.array(z.string().min(1)).min(1).max(MAX_TASKS_PER_SESSION),
   done: z.boolean(),
+});
+
+// Signup input. Caps lengths so arbitrarily large strings can't be stored
+// verbatim (254 is the practical email max per RFC 5321; bcrypt only uses the
+// first 72 bytes of the password anyway).
+export const signupSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Please enter a valid email address').max(254),
+  password: z.string().min(6, 'Password must be at least 6 characters').max(72),
+  name: z.string().trim().max(100).optional().nullable(),
 });
 
 // Formats a ZodError into a single readable message for API error responses.

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
+import { getClientIp } from '@/lib/rate-limit';
 
 const RATE_LIMIT_SECONDS = 300; // 5 minutes between submissions per IP
 const MIN_MESSAGE_LENGTH = 10;
@@ -57,8 +58,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limiting by hashed IP
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
-    const ipHash = hashIp(ip);
+    const ipHash = hashIp(getClientIp(req));
 
     const recentFeedback = await prisma.feedback.findFirst({
       where: {
