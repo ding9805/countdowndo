@@ -292,24 +292,25 @@ export function TaskBankPage() {
               </div>
             </div>
 
-            <TaskBankForm
-              inline
-              mode="create"
-              open={false}
-              onOpenChange={() => {}}
-              templates={templates}
-              existingTags={allTags}
-              onSubmit={handleCreate}
-            />
+            <div className="lg:grid lg:grid-cols-2 lg:gap-6 lg:items-start">
+              <TaskBankForm
+                inline
+                mode="create"
+                open={false}
+                onOpenChange={() => {}}
+                templates={templates}
+                existingTags={allTags}
+                onSubmit={handleCreate}
+              />
 
-            <div className="mb-6">
+            <div className="lg:col-start-2 mb-6">
               <TagFilterBar allTags={allTags} activeTags={activeTags} onToggle={toggleTag} onClear={() => setActiveTags([])} />
             </div>
 
             {loading ? (
-              <p className="text-sm text-muted-foreground text-center py-16">Loading…</p>
+              <p className="text-sm text-muted-foreground text-center py-16 lg:col-start-2">Loading…</p>
             ) : visibleTasks.length === 0 ? (
-              <div className="text-center py-16">
+              <div className="text-center py-16 lg:col-start-2">
                 <p className="text-sm text-muted-foreground">
                   {tasks.length === 0
                     ? 'No tasks in your bank yet. Create one to get started.'
@@ -317,7 +318,7 @@ export function TaskBankPage() {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3 lg:col-start-2">
                 <AnimatePresence initial={false}>
                   {visibleTasks.map((task) => (
                     <TaskBankCard key={task.id} task={task} onEdit={openEdit} onDelete={handleDelete} />
@@ -325,6 +326,7 @@ export function TaskBankPage() {
                 </AnimatePresence>
               </div>
             )}
+            </div>
           </>
         )}
       </div>

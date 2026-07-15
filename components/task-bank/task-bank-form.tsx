@@ -9,7 +9,7 @@ import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
 import { TagInput, mergePendingTag } from './tag-input';
 import { formatDuration } from '@/lib/timer-utils';
-import { Sparkles, Plus, X } from 'lucide-react';
+import { Sparkles, Plus, X, ChevronDown } from 'lucide-react';
 
 interface TaskBankFormProps {
   open: boolean;
@@ -37,6 +37,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
   const [templateId, setTemplateId] = useState<string>('');
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   useEffect(() => {
     if (inline) return;
@@ -89,6 +90,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
         setTagInput('');
         setTemplateId('');
         setShowTimePicker(false);
+        setShowAdvanced(false);
       } else {
         onOpenChange(false);
       }
@@ -101,39 +103,44 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
   // which can both be mounted at once — never share a duplicate HTML id.
   const oneOffId = `isOneOff-${mode}${inline ? '-inline' : ''}`;
 
-  const fields = (
-    <div className="space-y-4">
-      {mode === 'create' && templates.length > 0 && (
-        <div>
-          <label className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
-            <Sparkles className="w-3.5 h-3.5" />
-            Start from a template (optional)
-          </label>
-          <select
-            value={templateId}
-            onChange={(e) => applyTemplate(e.target.value)}
-            className="w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
-          >
-            <option value="">No template — start blank</option>
-            {templates.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
+  const templateField = mode === 'create' && templates.length > 0 && (
+    <div>
+      <label className="text-xs text-muted-foreground mb-1.5 flex items-center gap-1">
+        <Sparkles className="w-3.5 h-3.5" />
+        Start from a template (optional)
+      </label>
+      <select
+        value={templateId}
+        onChange={(e) => applyTemplate(e.target.value)}
+        className="w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50"
+      >
+        <option value="">No template — start blank</option>
+        {templates.map((t) => (
+          <option key={t.id} value={t.id}>{t.name}</option>
+        ))}
+      </select>
+    </div>
+  );
 
-      <div>
-        <label className="text-xs text-muted-foreground mb-1.5 block">Task name</label>
-        <Input
-          autoFocus
-          placeholder="e.g., Vacuum living room"
-          value={name}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value.slice(0, 100))}
-          maxLength={100}
-          className="bg-secondary/60 border-border/50"
-        />
-      </div>
+  const nameField = (
+    <div>
+      <label className="text-xs text-muted-foreground mb-1.5 block">Task name</label>
+      <Input
+        autoFocus={!inline}
+        placeholder="e.g., Vacuum living room"
+        value={name}
+        onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value.slice(0, 100))}
+        maxLength={100}
+        className="bg-secondary/60 border-border/50"
+      />
+    </div>
+  );
 
+  // Advanced fields are always visible on desktop (lg:block) and behind a
+  // "More options" toggle on mobile. Kept together so both the inline card and
+  // the edit dialog can compose them in a single collapsible block.
+  const advancedFields = (
+    <>
       <div>
         <label className="text-xs text-muted-foreground mb-1.5 block">Color</label>
         <ColorPicker value={color} onChange={setColor} />
@@ -200,24 +207,41 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
           Delete from bank when completed or removed from session
         </label>
       </div>
-    </div>
+    </>
   );
 
   if (inline) {
     return (
-      <div className="glass-card rounded-xl p-4 sm:p-5 mb-6 space-y-4">
+      <div className="glass-card rounded-xl p-4 sm:p-5 mb-6 lg:mb-0 lg:sticky lg:top-20 space-y-4">
         <div className="flex items-center gap-2">
           <div className="w-7 h-7 rounded-lg gradient-primary flex items-center justify-center shrink-0">
             <Plus className="w-4 h-4 text-primary-foreground" />
           </div>
           <h2 className="font-display text-sm font-semibold text-foreground">Add a task</h2>
         </div>
-        {fields}
-        <div className="flex justify-end pt-1">
+
+        {nameField}
+
+        <div className={`${showAdvanced ? 'block space-y-4' : 'hidden'} lg:block lg:space-y-4`}>
+          {templateField}
+          {advancedFields}
+        </div>
+
+        <div className="flex items-center gap-2 pt-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="lg:hidden text-muted-foreground"
+          >
+            <ChevronDown className={`w-4 h-4 mr-1 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            {showAdvanced ? 'Hide options' : 'More options'}
+          </Button>
           <Button
             onClick={handleSubmit}
             disabled={!name.trim() || submitting}
-            className="gradient-primary hover:opacity-90 text-primary-foreground font-semibold shadow-md"
+            className="gradient-primary hover:opacity-90 text-primary-foreground font-semibold shadow-md ml-auto"
           >
             <Plus className="w-4 h-4 mr-1.5" />
             {submitting ? 'Adding…' : 'Add Task'}
@@ -233,7 +257,11 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
         <DialogHeader>
           <DialogTitle>{mode === 'create' ? 'New Task' : 'Edit Task'}</DialogTitle>
         </DialogHeader>
-        {fields}
+        <div className="space-y-4">
+          {templateField}
+          {nameField}
+          {advancedFields}
+        </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
