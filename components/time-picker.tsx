@@ -73,8 +73,8 @@ export function TimePicker({ onSelect, initialSeconds = 0, initialMinutes = 5, i
         />
         <div
           ref={ref}
-          className="scroll-picker overflow-y-auto h-full snap-y snap-mandatory"
-          style={{ scrollSnapType: 'y mandatory' }}
+          className="scroll-picker overflow-y-auto h-full snap-y snap-mandatory w-14"
+          style={{ scrollSnapType: 'y mandatory', touchAction: 'pan-y', overscrollBehavior: 'contain' }}
           onScroll={() => handleScroll(ref, items, setter)}
         >
           {/* Padding items */}
@@ -82,8 +82,8 @@ export function TimePicker({ onSelect, initialSeconds = 0, initialMinutes = 5, i
           {(items ?? []).map((item: number, i: number) => (
             <div
               key={`${label}-${i}`}
-              className={`flex items-center justify-center font-mono text-lg cursor-pointer snap-center transition-all ${
-                item === selected ? 'text-primary font-bold scale-110' : 'text-muted-foreground'
+              className={`flex items-center justify-center font-mono text-lg cursor-pointer snap-center transition-colors ${
+                item === selected ? 'text-primary font-bold' : 'text-muted-foreground'
               }`}
               style={{ height: ITEM_HEIGHT }}
               onClick={() => {
