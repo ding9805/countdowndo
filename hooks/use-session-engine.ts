@@ -472,21 +472,39 @@ export function useSessionEngine(isLoggedIn: boolean) {
     return idMap;
   }, [isLoggedIn]);
 
-  // Deletes bank tasks that are currently one-off on the server. Called as a
-  // session-end sweep so check-off-time failures get retried and un-checking a
-  // task mid-session still leaves the bank row intact.
+  // Session-end sweep: hard-deletes bank tasks that are currently one-off on
+  // the server and restores any soft-deleted rows that survived (e.g. checked
+  // then unchecked while offline). Called even with an empty id list so the
+  // restore pass always runs.
   const completeOneOffBankTasks = useCallback(async (bankTaskIds: string[]) => {
-    const ids = bankTaskIds.filter(Boolean);
-    if (!isLoggedIn || ids.length === 0) return;
+    if (!isLoggedIn) return;
     try {
       await fetch('/api/task-bank/complete-one-offs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bankTaskIds: ids }),
+        body: JSON.stringify({ bankTaskIds: bankTaskIds.filter(Boolean) }),
       });
       window.dispatchEvent(new Event('bank-tasks-updated'));
     } catch (e) {
       console.error('Failed to complete one-off bank tasks:', e);
+    }
+  }, [isLoggedIn]);
+
+  // Soft-delete toggle: checking a one-off done hides it from the bank
+  // immediately; unchecking restores it. The server checks the live isOneOff
+  // flag, so this is safe to call for any bank-linked task.
+  const setOneOffChecked = useCallback(async (bankTaskIds: string[], done: boolean) => {
+    const ids = bankTaskIds.filter(Boolean);
+    if (!isLoggedIn || ids.length === 0) return;
+    try {
+      await fetch('/api/task-bank/check-one-offs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankTaskIds: ids, done }),
+      });
+      window.dispatchEvent(new Event('bank-tasks-updated'));
+    } catch (e) {
+      console.error('Failed to update one-off bank tasks:', e);
     }
   }, [isLoggedIn]);
 
@@ -568,6 +586,11 @@ export function useSessionEngine(isLoggedIn: boolean) {
       if (task.completionLogId) {
         retractCompletionLog(task.completionLogId);
       }
+      // Restore the soft-deleted bank row so an accidental check-off doesn't
+      // keep the task hidden from the bank.
+      if (task.bankTaskId) {
+        setOneOffChecked([task.bankTaskId], false);
+      }
       return;
     }
 
@@ -578,6 +601,12 @@ export function useSessionEngine(isLoggedIn: boolean) {
     );
     setTasks(provisional);
     saveSessionToDb(provisional);
+
+    // Soft-delete the bank row so the one-off disappears from the bank right
+    // away. The hard delete waits for session end, so unchecking can undo this.
+    if (task.bankTaskId) {
+      setOneOffChecked([task.bankTaskId], true);
+    }
 
     logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
       const logId = idMap[taskId];
@@ -750,8 +779,11 @@ export function useSessionEngine(isLoggedIn: boolean) {
       }
       // Queue any bank task id for the session-end sweep, since the task is
       // leaving the list and won't be caught by the isDone scan at stop time.
+      // Also soft-delete right away — removal counts as completion and can't
+      // be unchecked, so the row should vanish from the bank immediately.
       if (deletedTask?.bankTaskId) {
         pendingOneOffBankTaskIdsRef.current.add(deletedTask.bankTaskId);
+        setOneOffChecked([deletedTask.bankTaskId], true);
       }
       return;
     }

@@ -24,15 +24,27 @@ export async function POST(req: NextRequest) {
     }
     const { bankTaskIds } = parsed.data;
 
-    const { count } = await prisma.bankTask.deleteMany({
-      where: {
-        id: { in: bankTaskIds },
-        userId,
-        isOneOff: true,
-      },
+    const { count } = bankTaskIds.length > 0
+      ? await prisma.bankTask.deleteMany({
+          where: {
+            id: { in: bankTaskIds },
+            userId,
+            isOneOff: true,
+          },
+        })
+      : { count: 0 };
+
+    // Restore any remaining soft-deleted rows. A row can be left stranded with
+    // completedAt set if an uncheck request failed mid-session, or if a task
+    // was checked done but the session ended with it unchecked on another
+    // device. The user has one active session at a time, so once it ends
+    // every surviving row should be visible again.
+    const { count: restored } = await prisma.bankTask.updateMany({
+      where: { userId, completedAt: { not: null } },
+      data: { completedAt: null },
     });
 
-    return NextResponse.json({ count });
+    return NextResponse.json({ count, restored });
   } catch (error: any) {
     console.error('POST /api/task-bank/complete-one-offs error:', error);
     return NextResponse.json({ error: 'Failed to complete one-off bank tasks' }, { status: 500 });

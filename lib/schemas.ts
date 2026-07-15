@@ -84,8 +84,18 @@ export const bankTaskUpdateSchema = z.object({
   dueDate: dueDateSchema.nullable().optional(),
 });
 
+// Session-end sweep. Bounded by the session task cap (not the completion-log
+// batch cap) since a session can complete up to that many bank tasks. An empty
+// list is allowed: the sweep also restores stray soft-deleted rows, which is
+// worth doing even when nothing was completed.
 export const completeOneOffBankTasksSchema = z.object({
-  bankTaskIds: z.array(z.string().min(1)).min(1).max(MAX_COMPLETION_LOG_BATCH),
+  bankTaskIds: z.array(z.string().min(1)).max(MAX_TASKS_PER_SESSION),
+});
+
+// Check-off/uncheck soft-delete toggle for one-off bank tasks mid-session.
+export const checkOneOffBankTasksSchema = z.object({
+  bankTaskIds: z.array(z.string().min(1)).min(1).max(MAX_TASKS_PER_SESSION),
+  done: z.boolean(),
 });
 
 // Formats a ZodError into a single readable message for API error responses.

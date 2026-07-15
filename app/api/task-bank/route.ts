@@ -23,8 +23,11 @@ export async function GET() {
     }
     const userId = (session.user as any).id;
 
+    // completedAt-set rows are one-offs checked done in a running session —
+    // soft-deleted, pending the session-end sweep. Hide them so they vanish
+    // from the bank immediately at check-off.
     const tasks = await prisma.bankTask.findMany({
-      where: { userId },
+      where: { userId, completedAt: null },
       orderBy: { createdAt: 'desc' },
     });
     return NextResponse.json(tasks ?? []);

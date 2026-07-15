@@ -36,6 +36,10 @@ export interface BankTask {
   tags: string[];
   isOneOff: boolean;
   dueDate: string | null;
+  // Soft-delete marker: set while a one-off is checked done in a running
+  // session (hidden from bank views), cleared on uncheck, row hard-deleted at
+  // session end. GET /api/task-bank filters these out, so it's rarely seen.
+  completedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

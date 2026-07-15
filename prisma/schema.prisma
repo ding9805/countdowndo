@@ -38,6 +38,11 @@ model BankTask {
   tags            String[] @default([])
   isOneOff        Boolean  @default(false)
   dueDate         String?  // "YYYY-MM-DD" local calendar date; no time/timezone semantics
+  // Soft-delete marker for one-off tasks checked done in a running session.
+  // Hidden from the bank while set; cleared on uncheck, hard-deleted at
+  // session end. Lets a one-off vanish from the bank immediately at check-off
+  // while remaining restorable if the user unchecks by mistake.
+  completedAt     DateTime?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
