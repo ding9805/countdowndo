@@ -105,14 +105,16 @@ export async function POST(request: NextRequest) {
       // fetch only rejects on network failure — a 4xx/5xx from Resend (bad key,
       // unverified domain, quota) resolves normally and must be checked explicitly,
       // otherwise we'd tell the user an email is on its way when it never sent.
+      // A send failure is logged but still answered with success: returning an
+      // error only for addresses that have an account (fake ones short-circuit
+      // above) would let an attacker enumerate accounts whenever Resend is
+      // down or misconfigured. The token is saved, so a retry still works.
       if (!emailRes.ok) {
         const errBody = await emailRes.text().catch(() => '');
         console.error('Resend rejected reset email:', emailRes.status, errBody);
-        return NextResponse.json({ error: 'Failed to send reset email. Please try again.' }, { status: 500 });
       }
     } catch (emailError) {
       console.error('Failed to send reset email:', emailError);
-      return NextResponse.json({ error: 'Failed to send reset email. Please try again.' }, { status: 500 });
     }
 
     return NextResponse.json({ success: true });

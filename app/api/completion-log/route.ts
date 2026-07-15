@@ -57,7 +57,9 @@ export async function POST(req: NextRequest) {
 
     // Create logs individually (not createMany) so we can return each row's id —
     // the client tracks it on the task so un-marking "done" can retract it later.
-    const logs = await Promise.all(
+    // Wrapped in a transaction so a mid-batch failure doesn't leave partial
+    // writes behind a 500 the client can't reconcile.
+    const logs = await prisma.$transaction(
       tasks.map((t) =>
         prisma.completionLog.create({
           data: {
