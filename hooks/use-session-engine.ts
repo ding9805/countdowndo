@@ -98,7 +98,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
   const applyRemoteSessionData = useCallback((data: any) => {
     const loadedTasks = (data.tasks as Task[]) ?? [];
     setTasks(loadedTasks);
-    setSessionMode((data.sessionMode as SessionMode) ?? 'continuous');
+    // Coerce any legacy/non-continuous value (e.g. old 'sprint' rows) to 'continuous'.
+    setSessionMode('continuous');
 
     // Auto-heal: if sessionTotalSeconds is 0 but session is active with tasks,
     // derive it from the last task's cumulative (legacy/migration safety)
@@ -552,11 +553,9 @@ export function useSessionEngine(isLoggedIn: boolean) {
     setElapsedSeconds(0);
     setSessionTotalSeconds(0);
     soundPlayedRef.current = new Set();
-    // In continuous mode, filter out done tasks when stopping so only unfinished ones remain
+    // On stop, filter out done tasks so only unfinished ones remain
     setTasks((prev: Task[]) => {
-      const remaining = sessionMode === 'continuous'
-        ? (prev ?? []).filter((t: Task) => !t?.isDone)
-        : (prev ?? []);
+      const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
       return recalculateCumulativeTimes(
         remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
       );
@@ -677,7 +676,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
           return updated;
         }
       } else {
-        // Idle or sprint: full recalculation
+        // Idle: full recalculation
         const newTask: Task = {
           id: generateId(),
           name,
@@ -740,7 +739,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
         return updated;
       }
 
-      // Idle or sprint: full recalculation
+      // Idle: full recalculation
       const newTasks: Task[] = bankTasks.map((bt) => ({
         id: generateId(),
         name: bt.name,
@@ -769,7 +768,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
     const deletedTask = (tasks ?? []).find((t: Task) => t?.id === taskId);
 
     // In continuous mode during an active session, treat delete as "mark done" and remove from list
-    if (isActive && sessionMode === 'continuous') {
+    if (isActive) {
       const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
       setTasks(filtered);
       saveSessionToDb(filtered);
@@ -788,7 +787,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
       return;
     }
 
-    // Sprint mode or idle: actually remove the task and recalculate.
+    // Idle: actually remove the task and recalculate.
     // Persisted regardless of isActive so a staged pre-session list survives a refresh.
     const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
     const updated = recalculateCumulativeTimes(filtered);
@@ -832,7 +831,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
         return updated;
       }
 
-      // Sprint mode or idle: full recalculation. Persisted regardless of
+      // Idle: full recalculation. Persisted regardless of
       // session state — see the comment in handleAddTask.
       const updated = recalculateCumulativeTimes(
         list.map((t: Task) =>
@@ -875,7 +874,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
       return;
     }
 
-    // SPRINT MODE or IDLE: full recalculation, sessionTotalSeconds = sum of
+    // IDLE: full recalculation, sessionTotalSeconds = sum of
     // task durations (no gaps). Persisted regardless of session state — see
     // the comment in handleAddTask.
     const updated = recalculateCumulativeTimes(newTasks ?? []);

@@ -55,7 +55,7 @@ export interface BankTaskTemplate {
 }
 
 export type SessionState = 'idle' | 'running' | 'paused';
-export type SessionMode = 'continuous' | 'sprint';
+export type SessionMode = 'continuous';
 export type TaskOrder = 'desc' | 'asc';
 export type TaskBankSortMode = 'recent' | 'due' | 'alpha';
 

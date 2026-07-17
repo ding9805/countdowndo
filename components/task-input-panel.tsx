@@ -6,7 +6,7 @@ import { ColorPicker } from './color-picker';
 import { formatDuration } from '@/lib/timer-utils';
 import { TimePicker } from './time-picker';
 import { StartTimePicker } from './start-time-picker';
-import { Plus, Play, GripVertical, X, Pencil, Clock, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Zap, Infinity, ArrowUpDown, Archive } from 'lucide-react';
+import { Plus, Play, GripVertical, X, Pencil, Clock, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, ArrowUpDown, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -116,11 +116,33 @@ export function TaskInputPanel({
   };
 
   const moveTaskToEdge = (displayIdx: number, edge: 'top' | 'bottom') => {
+    const list = displayTasks;
+
+    if (edge === 'top') {
+      // Insert just below any completed-but-not-yet-deleted tasks sitting at the
+      // top of the display — those are historical records the user wants to
+      // keep visible above the upcoming work.
+      let topDoneCount = 0;
+      while (topDoneCount < list.length && list[topDoneCount]?.isDone) {
+        topDoneCount++;
+      }
+      let targetDisplayIdx = Math.min(topDoneCount, list.length - 1);
+      if (targetDisplayIdx === displayIdx) return;
+      const newDisplay = [...list];
+      const [moved] = newDisplay.splice(displayIdx, 1);
+      if (!moved) return;
+      const insertAt = displayIdx < targetDisplayIdx ? targetDisplayIdx - 1 : targetDisplayIdx;
+      newDisplay.splice(insertAt, 0, moved);
+      const newTasks = isAsc ? [...newDisplay].reverse() : newDisplay;
+      onReorder?.(newTasks);
+      return;
+    }
+
     const realIdx = toRealIdx(displayIdx);
     // Visual "top" in asc view = real last index; visual "bottom" in asc view = real index 0
     const targetIdx = isAsc
-      ? (edge === 'top' ? (tasks?.length ?? 1) - 1 : 0)
-      : (edge === 'top' ? 0 : (tasks?.length ?? 1) - 1);
+      ? 0
+      : (tasks?.length ?? 1) - 1;
     if (realIdx === targetIdx) return;
     const newTasks = [...(tasks ?? [])];
     const [moved] = newTasks.splice(realIdx, 1);
@@ -447,30 +469,19 @@ export function TaskInputPanel({
         </AnimatePresence>
       </div>
 
-      {/* Start session buttons */}
+      {/* Start session button */}
       {(tasks?.length ?? 0) > 0 && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-2 gap-3 pt-4">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="pt-4">
           <Button
             onClick={() => {
               onSessionModeChange('continuous');
               onStartSession();
             }}
             size="lg"
-            className="gradient-primary hover:opacity-90 text-primary-foreground px-4 py-6 text-sm font-semibold rounded-xl shadow-lg glow-primary"
+            className="w-full gradient-primary hover:opacity-90 text-primary-foreground px-4 py-6 text-sm font-semibold rounded-xl shadow-lg glow-primary"
           >
-            <Infinity className="w-5 h-5 mr-1.5 flex-shrink-0" />
-            Continuous
-          </Button>
-          <Button
-            onClick={() => {
-              onSessionModeChange('sprint');
-              onStartSession();
-            }}
-            size="lg"
-            className="gradient-primary hover:opacity-90 text-primary-foreground px-4 py-6 text-sm font-semibold rounded-xl shadow-lg glow-primary"
-          >
-            <Zap className="w-5 h-5 mr-1.5 flex-shrink-0" />
-            Sprint
+            <Play className="w-5 h-5 mr-1.5 flex-shrink-0" />
+            Start Session
           </Button>
         </motion.div>
       )}

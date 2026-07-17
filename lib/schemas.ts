@@ -41,7 +41,7 @@ export const taskSchema = z.object({
 export const activeSessionPayloadSchema = z.object({
   tasks: z.array(taskSchema).max(MAX_TASKS_PER_SESSION).default([]),
   sessionState: z.enum(['idle', 'running', 'paused']).default('running'),
-  sessionMode: z.enum(['continuous', 'sprint']).default('continuous'),
+  sessionMode: z.literal('continuous').default('continuous'),
   sessionStartMs: z.number().finite().default(() => Date.now()),
   pausedElapsed: z.number().finite().default(0),
   sessionTotalSeconds: z.number().finite().default(0),

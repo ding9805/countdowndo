@@ -101,7 +101,7 @@ model ActiveSession {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   tasks               Json     // Full task array with state
   sessionState        String   // 'idle' | 'running' | 'paused' — 'idle' is a staged, not-yet-started task list
-  sessionMode         String   @default("continuous") // 'continuous' | 'sprint'
+  sessionMode         String   @default("continuous") // always 'continuous' (sprint mode removed)
   sessionStartMs      Float    // Date.now() when session started/resumed
   pausedElapsed       Float    // seconds elapsed before last pause
   sessionTotalSeconds Float    @default(0) // Total session duration envelope (continuous mode)

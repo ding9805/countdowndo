@@ -4,7 +4,7 @@ import React, { useState, useMemo } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, getTaskColorHex } from '@/lib/types';
 import { ColorPicker } from './color-picker';
 import { formatTime, formatDuration } from '@/lib/timer-utils';
-import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, Zap, ArrowUpDown, Trash2, Archive } from 'lucide-react';
+import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, ArrowUpDown, Trash2, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TimePicker } from './time-picker';
@@ -146,10 +146,33 @@ export function ActiveSession({
   };
 
   const moveTaskToEdge = (displayIdx: number, edge: 'top' | 'bottom') => {
+    const list = displayTasks;
+
+    if (edge === 'top') {
+      // Insert just below any completed-but-not-yet-deleted tasks sitting at the
+      // top of the display — those are historical records the user wants to
+      // keep visible above the upcoming work.
+      let topDoneCount = 0;
+      while (topDoneCount < list.length && list[topDoneCount]?.isDone) {
+        topDoneCount++;
+      }
+      let targetDisplayIdx = Math.min(topDoneCount, list.length - 1);
+      if (targetDisplayIdx === displayIdx) return;
+      const newDisplay = [...list];
+      const [moved] = newDisplay.splice(displayIdx, 1);
+      if (!moved) return;
+      // If we removed from above the target, the insertion point shifts left.
+      const insertAt = displayIdx < targetDisplayIdx ? targetDisplayIdx - 1 : targetDisplayIdx;
+      newDisplay.splice(insertAt, 0, moved);
+      const newTasks = isAsc ? [...newDisplay].reverse() : newDisplay;
+      onReorder?.(newTasks);
+      return;
+    }
+
     const realIdx = toRealIdx(displayIdx);
     const targetIdx = isAsc
-      ? (edge === 'top' ? (tasks?.length ?? 1) - 1 : 0)
-      : (edge === 'top' ? 0 : (tasks?.length ?? 1) - 1);
+      ? 0
+      : (tasks?.length ?? 1) - 1;
     if (realIdx === targetIdx) return;
     const newTasks = [...(tasks ?? [])];
     const [moved] = newTasks.splice(realIdx, 1);
@@ -182,13 +205,9 @@ export function ActiveSession({
     <div className="space-y-6">
       {/* Session mode badge */}
       <div className="flex items-center gap-2">
-        <div className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border ${
-          sessionMode === 'continuous'
-            ? 'bg-primary/10 text-primary border-primary/20'
-            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-        }`}>
-          {sessionMode === 'continuous' ? <Infinity className="w-3.5 h-3.5" /> : <Zap className="w-3.5 h-3.5" />}
-          {sessionMode === 'continuous' ? 'Continuous' : 'Sprint'} session
+        <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border bg-primary/10 text-primary border-primary/20">
+          <Infinity className="w-3.5 h-3.5" />
+          Session in progress
         </div>
       </div>
 
@@ -494,7 +513,7 @@ export function ActiveSession({
                         <button
                           onClick={() => onDeleteTask?.(task?.id)}
                           className="p-1.5 rounded-lg bg-destructive/15 hover:bg-destructive/25 text-destructive transition-colors"
-                          title={sessionMode === 'continuous' ? 'Remove task (marks as done)' : 'Delete task (shortens session)'}
+                          title="Remove task (marks as done)"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
