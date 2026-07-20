@@ -509,6 +509,24 @@ export function useSessionEngine(isLoggedIn: boolean) {
     }
   }, [isLoggedIn]);
 
+  // Advances or rolls back a goal by one interval when its cursor bank task is
+  // completed/un-completed in a session. The server resolves the goal by
+  // bankTaskId, so this is safe to call for any bank-linked task — non-goal
+  // tasks are a no-op (same trust model as setOneOffChecked).
+  const stepGoalForBankTask = useCallback(async (bankTaskId: string, direction: 'advance' | 'retreat') => {
+    if (!isLoggedIn || !bankTaskId) return;
+    try {
+      await fetch('/api/goals/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankTaskId, direction }),
+      });
+      window.dispatchEvent(new Event('bank-tasks-updated'));
+    } catch (e) {
+      console.error('Failed to step goal:', e);
+    }
+  }, [isLoggedIn]);
+
   // Retracts a completion-log entry — used when a task is un-marked as done,
   // so toggling done -> undone -> done doesn't leave a duplicate stats entry behind.
   const retractCompletionLog = useCallback(async (completionLogId: string) => {
@@ -589,6 +607,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
       // keep the task hidden from the bank.
       if (task.bankTaskId) {
         setOneOffChecked([task.bankTaskId], false);
+        stepGoalForBankTask(task.bankTaskId, 'retreat');
       }
       return;
     }
@@ -605,6 +624,7 @@ export function useSessionEngine(isLoggedIn: boolean) {
     // away. The hard delete waits for session end, so unchecking can undo this.
     if (task.bankTaskId) {
       setOneOffChecked([task.bankTaskId], true);
+      stepGoalForBankTask(task.bankTaskId, 'advance');
     }
 
     logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
@@ -783,6 +803,12 @@ export function useSessionEngine(isLoggedIn: boolean) {
       if (deletedTask?.bankTaskId) {
         pendingOneOffBankTaskIdsRef.current.add(deletedTask.bankTaskId);
         setOneOffChecked([deletedTask.bankTaskId], true);
+        // Removal during an active session counts as completion, so a goal
+        // cursor advances here too — unless it was already marked done, in
+        // which case the advance fired in handleMarkDone.
+        if (!deletedTask.isDone) {
+          stepGoalForBankTask(deletedTask.bankTaskId, 'advance');
+        }
       }
       return;
     }

@@ -26,6 +26,7 @@ model User {
   completionLogs    CompletionLog[]
   bankTasks         BankTask[]
   bankTaskTemplates BankTaskTemplate[]
+  goals             Goal[]
 }
 
 model BankTask {
@@ -43,6 +44,40 @@ model BankTask {
   // session end. Lets a one-off vanish from the bank immediately at check-off
   // while remaining restorable if the user unchecks by mistake.
   completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  goal            Goal?
+
+  @@index([userId])
+}
+
+// A quantifiable, deadline-bound goal (e.g. read pages 20→100 by a date).
+// Each incomplete goal owns at most one "cursor" BankTask representing the
+// next interval; completing that task in a session advances currentValue and
+// the task is renamed to the following interval. The goal is the source of
+// truth — the cursor task is disposable (SetNull) and can be regenerated.
+model Goal {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name            String   // "Read book"
+  unit            String   // "pages"
+  startValue      Float
+  targetValue     Float
+  currentValue    Float    // starts at startValue
+  intervals       Int      // user-chosen chunk count; chunk size is derived
+  intervalSeconds Int      // duration of the spawned cursor task
+  color           String   // TaskColorId
+  startDate       String   // "YYYY-MM-DD" at creation; anchors the pace calc
+  dueDate         String   // "YYYY-MM-DD" local calendar date
+  completedAt     DateTime?
+  bankTaskId      String?  @unique
+  bankTask        BankTask? @relation(fields: [bankTaskId], references: [id], onDelete: SetNull)
+  // Most recent cursor task id, kept after the task is deleted (no FK). Lets
+  // an undo from a session still resolve this goal after the completing step
+  // deleted the cursor and SetNull cleared bankTaskId.
+  lastBankTaskId  String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 

@@ -44,6 +44,27 @@ export interface BankTask {
   updatedAt: string;
 }
 
+export interface Goal {
+  id: string;
+  name: string;
+  unit: string;
+  startValue: number;
+  targetValue: number;
+  currentValue: number;
+  intervals: number;
+  intervalSeconds: number;
+  color: TaskColorId;
+  startDate: string; // "YYYY-MM-DD"
+  dueDate: string;   // "YYYY-MM-DD"
+  completedAt: string | null;
+  // Cursor bank task id; null when the goal is complete or the task was
+  // deleted from the bank directly (orphaned — the UI offers "Regenerate").
+  bankTaskId: string | null;
+  lastBankTaskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface BankTaskTemplate {
   id: string;
   name: string;

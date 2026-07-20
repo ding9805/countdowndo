@@ -98,6 +98,48 @@ export const checkOneOffBankTasksSchema = z.object({
   done: z.boolean(),
 });
 
+// Goals. Values are bounded so a hostile client can't store absurd numbers
+// that break the derived interval math or the progress UI.
+const MAX_UNIT_LENGTH = 30;
+const goalValueSchema = z.number().finite().min(-1e9).max(1e9);
+const goalIntervalsSchema = z.number().int().min(1).max(1000);
+
+export const goalCreateSchema = z
+  .object({
+    name: nameSchema,
+    unit: z.string().trim().min(1).max(MAX_UNIT_LENGTH),
+    startValue: goalValueSchema,
+    targetValue: goalValueSchema,
+    intervals: goalIntervalsSchema,
+    intervalSeconds: durationSchema,
+    color: taskColorSchema.optional(),
+    dueDate: dueDateSchema,
+  })
+  .refine((g) => g.targetValue > g.startValue, {
+    message: 'Target must be greater than the starting value',
+    path: ['targetValue'],
+  });
+
+export const goalUpdateSchema = z.object({
+  name: nameSchema.optional(),
+  unit: z.string().trim().min(1).max(MAX_UNIT_LENGTH).optional(),
+  startValue: goalValueSchema.optional(),
+  targetValue: goalValueSchema.optional(),
+  currentValue: goalValueSchema.optional(),
+  intervals: goalIntervalsSchema.optional(),
+  intervalSeconds: durationSchema.optional(),
+  color: taskColorSchema.optional(),
+  dueDate: dueDateSchema.optional(),
+});
+
+// Session-engine step for a goal-linked bank task. Resolved server-side by the
+// unique bankTaskId, so it's safe to call for any bank-linked task — non-goal
+// tasks are a no-op (same trust model as check-one-offs).
+export const goalStepSchema = z.object({
+  bankTaskId: z.string().min(1),
+  direction: z.enum(['advance', 'retreat']),
+});
+
 // Signup input. Caps lengths so arbitrarily large strings can't be stored
 // verbatim (254 is the practical email max per RFC 5321; bcrypt only uses the
 // first 72 bytes of the password anyway).
