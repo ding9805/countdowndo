@@ -7,6 +7,7 @@ import { authOptions } from '@/lib/auth';
 import { goalUpdateSchema, formatZodError } from '@/lib/schemas';
 import { syncCursorTask } from '@/lib/goal-service';
 import { clampGoalValue, isGoalComplete } from '@/lib/goal-utils';
+import { getUserTagCorpus, normalizeTags } from '@/lib/tag-utils';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
   try {
@@ -39,6 +40,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     merged.currentValue = clampGoalValue(merged.currentValue, merged);
     const complete = isGoalComplete(merged);
 
+    // Normalize tags only when provided — a progress-only edit (just
+    // currentValue) skips the corpus fetch entirely, mirroring the bank-task
+    // PUT. Excluding this goal's id lets a solo tag rename change casing.
+    const normalizedTags = data.tags !== undefined
+      ? normalizeTags(await getUserTagCorpus(userId, { excludeGoalId: id }), data.tags)
+      : undefined;
+
     const goal = await prisma.$transaction(async (tx) => {
       const updated = await tx.goal.update({
         where: { id },
@@ -53,6 +61,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
           color: merged.color,
           dueDate: merged.dueDate,
           completedAt: complete ? (existing.completedAt ?? new Date()) : null,
+          ...(normalizedTags !== undefined ? { tags: normalizedTags } : {}),
         },
       });
       // forceCreate only when the edit un-completes a previously complete goal

@@ -69,6 +69,7 @@ model Goal {
   intervals       Int      // user-chosen chunk count; chunk size is derived
   intervalSeconds Int      // duration of the spawned cursor task
   color           String   // TaskColorId
+  tags            String[] @default([]) // copied onto the cursor task for bank filtering
   startDate       String   // "YYYY-MM-DD" at creation; anchors the pace calc
   dueDate         String   // "YYYY-MM-DD" local calendar date
   completedAt     DateTime?

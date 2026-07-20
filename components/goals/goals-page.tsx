@@ -17,6 +17,7 @@ export function GoalsPage() {
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
 
   const [goals, setGoals] = useState<Goal[]>([]);
+  const [existingTags, setExistingTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
@@ -32,18 +33,32 @@ export function GoalsPage() {
     }
   }, []);
 
+  const fetchTags = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tags');
+      if (res.ok) setExistingTags(await res.json());
+    } catch (e) {
+      console.error('Failed to load tags:', e);
+    }
+  }, []);
+
   useEffect(() => {
-    if (isLoggedIn) fetchGoals();
-    else setLoading(false);
-  }, [isLoggedIn, fetchGoals]);
+    if (isLoggedIn) {
+      fetchGoals();
+      fetchTags();
+    } else {
+      setLoading(false);
+    }
+  }, [isLoggedIn, fetchGoals, fetchTags]);
 
   // Goal steps fire this event from the session engine (and cursor renames
-  // land alongside bank updates), so reuse it to keep progress bars live.
+  // land alongside bank updates), so reuse it to keep progress bars live and
+  // the form's tag suggestions current.
   useEffect(() => {
-    const handler = () => { if (isLoggedIn) fetchGoals(); };
+    const handler = () => { if (isLoggedIn) { fetchGoals(); fetchTags(); } };
     window.addEventListener('bank-tasks-updated', handler);
     return () => window.removeEventListener('bank-tasks-updated', handler);
-  }, [isLoggedIn, fetchGoals]);
+  }, [isLoggedIn, fetchGoals, fetchTags]);
 
   const activeCount = useMemo(() => goals.filter((g) => !g.completedAt).length, [goals]);
 
@@ -63,6 +78,7 @@ export function GoalsPage() {
       setGoals((p) => (isEdit ? p.map((g) => (g.id === saved.id ? saved : g)) : [saved, ...p]));
       toast.success(isEdit ? 'Goal updated' : 'Goal created — its task is in your Task Bank');
       window.dispatchEvent(new Event('bank-tasks-updated'));
+      fetchTags();
     } catch (e: any) {
       toast.error(e?.message ?? 'Something went wrong');
       throw e;
@@ -200,6 +216,7 @@ export function GoalsPage() {
         onOpenChange={setFormOpen}
         mode={editingGoal ? 'edit' : 'create'}
         initialGoal={editingGoal}
+        existingTags={existingTags}
         onSubmit={handleSubmit}
       />
     </div>

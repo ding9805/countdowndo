@@ -16,7 +16,7 @@ async function createCursorTask(tx: Tx, goal: Goal): Promise<Goal> {
       name: cursorTaskName(goal),
       durationSeconds: goal.intervalSeconds,
       color: goal.color,
-      tags: [],
+      tags: goal.tags,
       isOneOff: false,
       dueDate: goal.dueDate,
     },
@@ -66,6 +66,7 @@ export async function syncCursorTask(tx: Tx, goal: Goal, opts?: { forceCreate?: 
         name: cursorTaskName(goal),
         durationSeconds: goal.intervalSeconds,
         color: goal.color,
+        tags: goal.tags,
         dueDate: goal.dueDate,
       },
     });

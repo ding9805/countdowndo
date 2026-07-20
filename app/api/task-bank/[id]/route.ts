@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { normalizeTags } from '@/lib/tag-utils';
+import { getUserTagCorpus, normalizeTags } from '@/lib/tag-utils';
 import { bankTaskUpdateSchema, formatZodError } from '@/lib/schemas';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -34,11 +34,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     if (isOneOff !== undefined) updateData.isOneOff = isOneOff;
     if (dueDate !== undefined) updateData.dueDate = dueDate;
     if (tags !== undefined) {
-      const [taskRows, templateRows] = await Promise.all([
-        prisma.bankTask.findMany({ where: { userId, id: { not: id } }, select: { tags: true } }),
-        prisma.bankTaskTemplate.findMany({ where: { userId }, select: { tags: true } }),
-      ]);
-      const corpus = [...taskRows, ...templateRows].flatMap((t) => t.tags);
+      const corpus = await getUserTagCorpus(userId, { excludeBankTaskId: id });
       updateData.tags = normalizeTags(corpus, tags);
     }
 

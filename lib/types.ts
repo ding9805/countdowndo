@@ -54,6 +54,7 @@ export interface Goal {
   intervals: number;
   intervalSeconds: number;
   color: TaskColorId;
+  tags: string[];
   startDate: string; // "YYYY-MM-DD"
   dueDate: string;   // "YYYY-MM-DD"
   completedAt: string | null;

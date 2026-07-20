@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
+import { TagInput, mergePendingTag } from '@/components/task-bank/tag-input';
 import { formatDuration } from '@/lib/timer-utils';
 import { formatGoalValue } from '@/lib/goal-utils';
 
@@ -18,6 +19,7 @@ export interface GoalFormData {
   intervals: number;
   intervalSeconds: number;
   color: TaskColorId;
+  tags: string[];
   dueDate: string;
 }
 
@@ -26,6 +28,7 @@ interface GoalFormProps {
   onOpenChange: (open: boolean) => void;
   mode: 'create' | 'edit';
   initialGoal?: Goal | null;
+  existingTags: string[];
   onSubmit: (data: GoalFormData) => Promise<void> | void;
 }
 
@@ -34,7 +37,7 @@ const DEFAULTS = {
   intervalSeconds: 1500, color: 'orange' as TaskColorId, dueDate: '',
 };
 
-export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: GoalFormProps) {
+export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, onSubmit }: GoalFormProps) {
   const [name, setName] = useState(DEFAULTS.name);
   const [unit, setUnit] = useState(DEFAULTS.unit);
   const [startValue, setStartValue] = useState(DEFAULTS.startValue);
@@ -42,6 +45,8 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
   const [intervals, setIntervals] = useState(DEFAULTS.intervals);
   const [intervalSeconds, setIntervalSeconds] = useState(DEFAULTS.intervalSeconds);
   const [color, setColor] = useState<TaskColorId>(DEFAULTS.color);
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
   const [dueDate, setDueDate] = useState(DEFAULTS.dueDate);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -56,6 +61,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
       setIntervals(String(initialGoal.intervals));
       setIntervalSeconds(initialGoal.intervalSeconds);
       setColor(initialGoal.color);
+      setTags(initialGoal.tags);
       setDueDate(initialGoal.dueDate);
     } else {
       setName(DEFAULTS.name);
@@ -65,8 +71,10 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
       setIntervals(DEFAULTS.intervals);
       setIntervalSeconds(DEFAULTS.intervalSeconds);
       setColor(DEFAULTS.color);
+      setTags([]);
       setDueDate(DEFAULTS.dueDate);
     }
+    setTagInput('');
     setShowTimePicker(false);
   }, [open, mode, initialGoal]);
 
@@ -83,6 +91,8 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
     if (!canSubmit) return;
     setSubmitting(true);
     try {
+      // Flush any tag text typed but not yet committed with Enter/comma.
+      const finalTags = mergePendingTag(tags, tagInput);
       await onSubmit({
         name: name.trim(),
         unit: unit.trim(),
@@ -91,6 +101,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
         intervals: nIntervals,
         intervalSeconds,
         color,
+        tags: finalTags,
         dueDate,
       });
       onOpenChange(false);
@@ -205,6 +216,21 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, onSubmit }: Go
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Color</label>
             <ColorPicker value={color} onChange={setColor} />
+          </div>
+
+          <div>
+            <label className="text-xs text-muted-foreground mb-1.5 block">Tags</label>
+            <TagInput
+              tags={tags}
+              onChange={setTags}
+              existingTags={existingTags}
+              inputValue={tagInput}
+              onInputChange={setTagInput}
+              placeholder="Tag the spawned task for bank filtering"
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">
+              Copied onto each interval task the goal spawns into your Task Bank.
+            </p>
           </div>
         </div>
         <DialogFooter>

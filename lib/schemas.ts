@@ -113,6 +113,7 @@ export const goalCreateSchema = z
     intervals: goalIntervalsSchema,
     intervalSeconds: durationSchema,
     color: taskColorSchema.optional(),
+    tags: tagsSchema.optional(),
     dueDate: dueDateSchema,
   })
   .refine((g) => g.targetValue > g.startValue, {
@@ -129,6 +130,7 @@ export const goalUpdateSchema = z.object({
   intervals: goalIntervalsSchema.optional(),
   intervalSeconds: durationSchema.optional(),
   color: taskColorSchema.optional(),
+  tags: tagsSchema.optional(),
   dueDate: dueDateSchema.optional(),
 });
 

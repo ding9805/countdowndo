@@ -4,16 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
-import { normalizeTags } from '@/lib/tag-utils';
+import { getUserTagCorpus, normalizeTags } from '@/lib/tag-utils';
 import { bankTaskCreateSchema, formatZodError } from '@/lib/schemas';
-
-async function getUserTagCorpus(userId: string): Promise<string[]> {
-  const [tasks, templates] = await Promise.all([
-    prisma.bankTask.findMany({ where: { userId }, select: { tags: true } }),
-    prisma.bankTaskTemplate.findMany({ where: { userId }, select: { tags: true } }),
-  ]);
-  return [...tasks, ...templates].flatMap((t) => t.tags);
-}
 
 export async function GET() {
   try {
