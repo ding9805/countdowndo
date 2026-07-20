@@ -28,11 +28,14 @@ export function TagInput({ tags, onChange, existingTags, inputValue, onInputChan
   const inputRef = useRef<HTMLInputElement>(null);
   const setInputValue = onInputChange;
 
+  // Show unused existing tags on focus (empty query) so the dropdown is a
+  // pick-list of bank/goal tags; once the user types, filter by substring.
   const suggestions = existingTags.filter((t) => {
+    if (tags.some((tag) => tag.toLowerCase() === t.toLowerCase())) return false;
     const q = inputValue.trim().toLowerCase();
-    if (!q) return false;
-    return t.toLowerCase().includes(q) && !tags.some((tag) => tag.toLowerCase() === t.toLowerCase());
-  }).slice(0, 6);
+    if (!q) return true;
+    return t.toLowerCase().includes(q);
+  }).slice(0, 12);
 
   const commitTag = (raw: string) => {
     const merged = mergePendingTag(tags, raw);
