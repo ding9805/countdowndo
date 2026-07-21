@@ -42,9 +42,17 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
 
     // Normalize tags only when provided — a progress-only edit (just
     // currentValue) skips the corpus fetch entirely, mirroring the bank-task
-    // PUT. Excluding this goal's id lets a solo tag rename change casing.
+    // PUT. Excluding this goal's id lets a solo tag rename change casing; the
+    // linked cursor task carries a copy of those same tags, so it has to be
+    // excluded too or it would pin the old casing right back.
     const normalizedTags = data.tags !== undefined
-      ? normalizeTags(await getUserTagCorpus(userId, { excludeGoalId: id }), data.tags)
+      ? normalizeTags(
+          await getUserTagCorpus(userId, {
+            excludeGoalId: id,
+            excludeBankTaskId: existing.bankTaskId ?? undefined,
+          }),
+          data.tags
+        )
       : undefined;
 
     const goal = await prisma.$transaction(async (tx) => {

@@ -20,6 +20,8 @@ export async function GET() {
 
     const corpus = await getUserTagCorpus(userId);
 
+    // Keep-first-casing must match normalizeTags' rule in lib/tag-utils.ts, so
+    // a suggestion the user picks round-trips through the server unchanged.
     const seen = new Set<string>();
     const unique: string[] = [];
     for (const tag of corpus) {
