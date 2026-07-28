@@ -513,17 +513,30 @@ export function useSessionEngine(isLoggedIn: boolean) {
   // completed/un-completed in a session. The server resolves the goal by
   // bankTaskId, so this is safe to call for any bank-linked task — non-goal
   // tasks are a no-op (same trust model as setOneOffChecked).
+  // A failure here can't be silent: the task still shows as done locally, so
+  // without a toast the goal just quietly doesn't move and the user has no way
+  // to tell. The refresh event fires either way — on failure it resyncs the
+  // card to the server's (unchanged) progress rather than leaving it stale.
   const stepGoalForBankTask = useCallback(async (bankTaskId: string, direction: 'advance' | 'retreat') => {
     if (!isLoggedIn || !bankTaskId) return;
     try {
-      await fetch('/api/goals/step', {
+      const res = await fetch('/api/goals/step', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskId, direction }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      // A task that isn't a goal cursor still answers 200 with { goal: null },
+      // so a non-ok status is always a real failure, never the no-op case.
+      if (!res.ok) throw new Error(`Goal step failed with ${res.status}`);
     } catch (e) {
       console.error('Failed to step goal:', e);
+      toast.error(
+        direction === 'advance'
+          ? "Couldn't update goal progress — it may be out of date"
+          : "Couldn't roll back goal progress — it may be out of date"
+      );
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
