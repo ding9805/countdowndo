@@ -7,6 +7,28 @@ import type { Goal, Prisma } from '@prisma/client';
 
 type Tx = Prisma.TransactionClient;
 
+// Every goal mutation is a read-modify-write (the new currentValue is derived
+// from the row), so the read must live inside the transaction and the
+// transaction must run at Serializable — otherwise two concurrent writers both
+// start from the same value and one update is lost. Postgres aborts the loser
+// with 40001, which Prisma surfaces as P2034; that's an expected outcome under
+// concurrency, not a failure, so re-run the whole transaction (fresh read
+// included) a couple of times before giving up.
+const SERIALIZATION_RETRIES = 3;
+
+export const SERIALIZABLE = { isolationLevel: 'Serializable' } as const;
+
+export async function withSerializableRetry<T>(run: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await run();
+    } catch (error: any) {
+      const isConflict = error?.code === 'P2034' || error?.meta?.code === '40001';
+      if (!isConflict || attempt >= SERIALIZATION_RETRIES) throw error;
+    }
+  }
+}
+
 // Creates the cursor BankTask for a goal and links it. Caller must ensure the
 // goal is incomplete and currently has no cursor.
 async function createCursorTask(tx: Tx, goal: Goal): Promise<Goal> {

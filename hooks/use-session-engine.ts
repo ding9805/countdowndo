@@ -480,32 +480,54 @@ export function useSessionEngine(isLoggedIn: boolean) {
   const completeOneOffBankTasks = useCallback(async (bankTaskIds: string[]) => {
     if (!isLoggedIn) return;
     try {
-      await fetch('/api/task-bank/complete-one-offs', {
+      const res = await fetch('/api/task-bank/complete-one-offs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskIds: bankTaskIds.filter(Boolean) }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      if (!res.ok) throw new Error(`Complete one-offs failed with ${res.status}`);
     } catch (e) {
+      // This is the session-end sweep, so a swallowed failure leaves one-off
+      // rows soft-deleted forever: hidden from the bank but never hard-deleted,
+      // and nothing retries them. Worth telling the user about.
       console.error('Failed to complete one-off bank tasks:', e);
+      toast.error("Couldn't finish clearing one-off tasks from your Task Bank", {
+        id: 'bank-sync-error',
+      });
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
   // Soft-delete toggle: checking a one-off done hides it from the bank
   // immediately; unchecking restores it. The server checks the live isOneOff
   // flag, so this is safe to call for any bank-linked task.
+  // Same reasoning as stepGoalForBankTask below: a swallowed failure leaves the
+  // task checked off in the session while the bank still shows it, with nothing
+  // to explain the disagreement. A task that isn't one-off answers 200 with
+  // { count: 0 }, so a non-ok status is always a real failure, never that no-op.
   const setOneOffChecked = useCallback(async (bankTaskIds: string[], done: boolean) => {
     const ids = bankTaskIds.filter(Boolean);
     if (!isLoggedIn || ids.length === 0) return;
     try {
-      await fetch('/api/task-bank/check-one-offs', {
+      const res = await fetch('/api/task-bank/check-one-offs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskIds: ids, done }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      if (!res.ok) throw new Error(`Check one-offs failed with ${res.status}`);
     } catch (e) {
       console.error('Failed to update one-off bank tasks:', e);
+      toast.error(
+        done
+          ? "Couldn't remove the task from your Task Bank"
+          : "Couldn't restore the task to your Task Bank",
+        // Marking a task done fires this and the goal step together, so a shared
+        // id per failure keeps one offline blip from stacking toasts.
+        { id: 'bank-sync-error' }
+      );
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
@@ -513,17 +535,31 @@ export function useSessionEngine(isLoggedIn: boolean) {
   // completed/un-completed in a session. The server resolves the goal by
   // bankTaskId, so this is safe to call for any bank-linked task — non-goal
   // tasks are a no-op (same trust model as setOneOffChecked).
+  // A failure here can't be silent: the task still shows as done locally, so
+  // without a toast the goal just quietly doesn't move and the user has no way
+  // to tell. The refresh event fires either way — on failure it resyncs the
+  // card to the server's (unchanged) progress rather than leaving it stale.
   const stepGoalForBankTask = useCallback(async (bankTaskId: string, direction: 'advance' | 'retreat') => {
     if (!isLoggedIn || !bankTaskId) return;
     try {
-      await fetch('/api/goals/step', {
+      const res = await fetch('/api/goals/step', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskId, direction }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      // A task that isn't a goal cursor still answers 200 with { goal: null },
+      // so a non-ok status is always a real failure, never the no-op case.
+      if (!res.ok) throw new Error(`Goal step failed with ${res.status}`);
     } catch (e) {
       console.error('Failed to step goal:', e);
+      toast.error(
+        direction === 'advance'
+          ? "Couldn't update goal progress — it may be out of date"
+          : "Couldn't roll back goal progress — it may be out of date",
+        { id: 'goal-step-error' }
+      );
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
@@ -532,13 +568,20 @@ export function useSessionEngine(isLoggedIn: boolean) {
   const retractCompletionLog = useCallback(async (completionLogId: string) => {
     if (isLoggedIn) {
       try {
-        await fetch('/api/completion-log', {
+        const res = await fetch('/api/completion-log', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: completionLogId }),
         });
+        if (!res.ok) throw new Error(`Retract completion log failed with ${res.status}`);
       } catch (e) {
+        // A silent failure here leaves a stats entry for work the user just
+        // un-marked, and re-marking it done logs a second one — so the history
+        // over-counts with no sign anything went wrong.
         console.error('Failed to retract completion log:', e);
+        toast.error("Couldn't remove that task from your history", {
+          id: 'completion-log-error',
+        });
       }
     } else {
       try {
