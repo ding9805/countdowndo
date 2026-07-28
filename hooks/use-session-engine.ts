@@ -480,14 +480,22 @@ export function useSessionEngine(isLoggedIn: boolean) {
   const completeOneOffBankTasks = useCallback(async (bankTaskIds: string[]) => {
     if (!isLoggedIn) return;
     try {
-      await fetch('/api/task-bank/complete-one-offs', {
+      const res = await fetch('/api/task-bank/complete-one-offs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskIds: bankTaskIds.filter(Boolean) }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      if (!res.ok) throw new Error(`Complete one-offs failed with ${res.status}`);
     } catch (e) {
+      // This is the session-end sweep, so a swallowed failure leaves one-off
+      // rows soft-deleted forever: hidden from the bank but never hard-deleted,
+      // and nothing retries them. Worth telling the user about.
       console.error('Failed to complete one-off bank tasks:', e);
+      toast.error("Couldn't finish clearing one-off tasks from your Task Bank", {
+        id: 'bank-sync-error',
+      });
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
@@ -560,13 +568,20 @@ export function useSessionEngine(isLoggedIn: boolean) {
   const retractCompletionLog = useCallback(async (completionLogId: string) => {
     if (isLoggedIn) {
       try {
-        await fetch('/api/completion-log', {
+        const res = await fetch('/api/completion-log', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: completionLogId }),
         });
+        if (!res.ok) throw new Error(`Retract completion log failed with ${res.status}`);
       } catch (e) {
+        // A silent failure here leaves a stats entry for work the user just
+        // un-marked, and re-marking it done logs a second one — so the history
+        // over-counts with no sign anything went wrong.
         console.error('Failed to retract completion log:', e);
+        toast.error("Couldn't remove that task from your history", {
+          id: 'completion-log-error',
+        });
       }
     } else {
       try {
