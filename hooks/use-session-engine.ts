@@ -494,18 +494,32 @@ export function useSessionEngine(isLoggedIn: boolean) {
   // Soft-delete toggle: checking a one-off done hides it from the bank
   // immediately; unchecking restores it. The server checks the live isOneOff
   // flag, so this is safe to call for any bank-linked task.
+  // Same reasoning as stepGoalForBankTask below: a swallowed failure leaves the
+  // task checked off in the session while the bank still shows it, with nothing
+  // to explain the disagreement. A task that isn't one-off answers 200 with
+  // { count: 0 }, so a non-ok status is always a real failure, never that no-op.
   const setOneOffChecked = useCallback(async (bankTaskIds: string[], done: boolean) => {
     const ids = bankTaskIds.filter(Boolean);
     if (!isLoggedIn || ids.length === 0) return;
     try {
-      await fetch('/api/task-bank/check-one-offs', {
+      const res = await fetch('/api/task-bank/check-one-offs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankTaskIds: ids, done }),
       });
-      window.dispatchEvent(new Event('bank-tasks-updated'));
+      if (!res.ok) throw new Error(`Check one-offs failed with ${res.status}`);
     } catch (e) {
       console.error('Failed to update one-off bank tasks:', e);
+      toast.error(
+        done
+          ? "Couldn't remove the task from your Task Bank"
+          : "Couldn't restore the task to your Task Bank",
+        // Marking a task done fires this and the goal step together, so a shared
+        // id per failure keeps one offline blip from stacking toasts.
+        { id: 'bank-sync-error' }
+      );
+    } finally {
+      window.dispatchEvent(new Event('bank-tasks-updated'));
     }
   }, [isLoggedIn]);
 
@@ -533,7 +547,8 @@ export function useSessionEngine(isLoggedIn: boolean) {
       toast.error(
         direction === 'advance'
           ? "Couldn't update goal progress — it may be out of date"
-          : "Couldn't roll back goal progress — it may be out of date"
+          : "Couldn't roll back goal progress — it may be out of date",
+        { id: 'goal-step-error' }
       );
     } finally {
       window.dispatchEvent(new Event('bank-tasks-updated'));
