@@ -72,7 +72,7 @@ export function SettingsPage() {
           <section className="glass-card rounded-2xl p-5 sm:p-6" style={{ boxShadow: 'var(--shadow-sm)' }}>
             <div className="mb-5">
               <h2 className="font-display text-base font-semibold text-foreground">Timer sounds</h2>
-              <p className="text-sm text-muted-foreground mt-1">Choose what you hear when a timer reaches zero.</p>
+              <p className="text-sm text-muted-foreground mt-1">Choose a short, gentle sound to play when a timer reaches zero.</p>
             </div>
             <TimerSoundSettings
               alarmEnabled={timerSettings.alarmEnabled}

@@ -1,4 +1,4 @@
-import type { TimerChime } from '@/lib/use-timer-sound';
+import { TIMER_CHIMES, type TimerChime } from '@/lib/use-timer-sound';
 
 export const TIMER_SETTINGS_KEY = 'countdowndo-timer-settings';
 
@@ -15,7 +15,7 @@ export const DEFAULT_TIMER_SETTINGS: TimerSettings = {
 };
 
 function isTimerChime(value: unknown): value is TimerChime {
-  return value === 'double-beep' || value === 'bell' || value === 'digital' || value === 'soft-pulse';
+  return TIMER_CHIMES.some((chime) => chime.id === value);
 }
 
 export function readTimerSettings(): TimerSettings {

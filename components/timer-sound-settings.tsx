@@ -51,7 +51,13 @@ export function TimerSoundSettings({
             onChange={(event) => onChimeChange(event.target.value as TimerChime)}
             className="w-full text-sm px-3 py-2 rounded-lg bg-secondary/60 border border-border/50 text-foreground focus:outline-none focus:border-primary/50 disabled:cursor-not-allowed"
           >
-            {TIMER_CHIMES.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+            {Array.from(new Set(TIMER_CHIMES.map((option) => option.category))).map((category) => (
+              <optgroup key={category} label={category}>
+                {TIMER_CHIMES.filter((option) => option.category === category).map((option) => (
+                  <option key={option.id} value={option.id}>{option.label}</option>
+                ))}
+              </optgroup>
+            ))}
           </select>
         </div>
         <button
