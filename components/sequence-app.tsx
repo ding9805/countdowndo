@@ -218,7 +218,6 @@ export function SequenceApp() {
         open={bankPickerOpen}
         onOpenChange={setBankPickerOpen}
         onConfirm={handleAddFromBank}
-        confirmLabel={isSession ? 'Add to Session' : 'Add Tasks'}
       />
     </div>
   );

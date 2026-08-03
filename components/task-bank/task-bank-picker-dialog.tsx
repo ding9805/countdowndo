@@ -15,22 +15,21 @@ interface TaskBankPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (tasks: BankTask[]) => void;
-  confirmLabel?: string;
 }
 
-export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, confirmLabel = 'Add Tasks' }: TaskBankPickerDialogProps) {
+export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBankPickerDialogProps) {
   const { data: authSession, status: authStatus } = useSession() || {};
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
 
   const [tasks, setTasks] = useState<BankTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [addedIds, setAddedIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!open || !isLoggedIn) return;
     setLoading(true);
-    setSelectedIds([]);
+    setAddedIds([]);
     setActiveTags([]);
     fetch('/api/task-bank')
       .then((res) => (res.ok ? res.json() : []))
@@ -66,14 +65,12 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, confirmLab
     setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
 
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((i) => i !== id) : [...prev, id]));
-  };
-
-  const handleConfirm = () => {
-    const selected = tasks.filter((t) => selectedIds.includes(t.id));
-    onConfirm(selected);
-    onOpenChange(false);
+  const handlePick = (id: string) => {
+    if (addedIds.includes(id)) return;
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    setAddedIds((prev) => [...prev, id]);
+    onConfirm([task]);
   };
 
   return (
@@ -121,8 +118,8 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, confirmLab
                         key={task.id}
                         task={task}
                         selectable
-                        selected={selectedIds.includes(task.id)}
-                        onToggleSelect={toggleSelect}
+                        selected={addedIds.includes(task.id)}
+                        onToggleSelect={handlePick}
                       />
                     ))}
                   </AnimatePresence>
@@ -132,15 +129,13 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, confirmLab
 
             <DialogFooter className="pt-2">
               <span className="text-xs text-muted-foreground mr-auto self-center">
-                {selectedIds.length} selected
+                {addedIds.length > 0 ? `${addedIds.length} added` : 'Tap a task to add it'}
               </span>
-              <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
               <Button
-                onClick={handleConfirm}
-                disabled={selectedIds.length === 0}
+                onClick={() => onOpenChange(false)}
                 className="bg-primary hover:bg-primary/90 text-primary-foreground"
               >
-                {confirmLabel} {selectedIds.length > 0 ? `(${selectedIds.length})` : ''}
+                Done
               </Button>
             </DialogFooter>
           </>
