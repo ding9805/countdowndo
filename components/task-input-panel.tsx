@@ -197,7 +197,7 @@ export function TaskInputPanel({
         <button
           type="button"
           onClick={() => setAddTaskCollapsed(!addTaskCollapsed)}
-          className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/[0.02] transition-colors"
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
         >
           <h2 className="font-display text-lg font-semibold flex items-center gap-2">
             <Plus className="w-5 h-5 text-primary" />
@@ -286,7 +286,7 @@ export function TaskInputPanel({
           <button
             type="button"
             onClick={() => setStartTimeCollapsed(!startTimeCollapsed)}
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
           >
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-primary" />

@@ -21,7 +21,7 @@ const buttonVariants = cva(
         ghost:
           "hover:bg-accent/15 hover:text-foreground",
         "glass-dark":
-          "bg-white/10 backdrop-blur-md border border-white/20 [box-shadow:inset_0_0_0_1px_rgba(255,255,255,0.1)] text-foreground shadow-sm hover:bg-white/25 hover:border-white/40 hover:shadow-lg focus-visible:ring-white/50 focus-visible:ring-ring/0",
+          "bg-black/[0.04] backdrop-blur-md border border-black/10 [box-shadow:inset_0_0_0_1px_rgba(255,255,255,0.5)] text-foreground shadow-sm hover:bg-black/[0.1] hover:border-black/20 hover:shadow-lg focus-visible:ring-black/30 focus-visible:ring-ring/0 dark:bg-white/10 dark:border-white/20 dark:[box-shadow:inset_0_0_0_1px_rgba(255,255,255,0.1)] dark:hover:bg-white/25 dark:hover:border-white/40 dark:focus-visible:ring-white/50",
         "glass-light":
           "bg-black/[0.06] backdrop-blur-md border border-black/10 [box-shadow:inset_0_0_0_1px_rgba(255,255,255,0.5)] text-gray-900 shadow-sm hover:bg-black/[0.12] hover:border-black/20 hover:shadow-lg focus-visible:ring-black/30 focus-visible:ring-ring/0",
         link:

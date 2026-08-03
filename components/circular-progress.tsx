@@ -23,16 +23,16 @@ export function CircularProgress({
   const offset = circumference * (1 - safeProgress);
 
   const strokeColor = isDone
-    ? 'hsl(142, 71%, 45%)'
+    ? 'hsl(var(--success))'
     : isOvertime
-    ? 'hsl(0, 72%, 55%)'
-    : 'hsl(32, 95%, 55%)';
+    ? 'hsl(var(--destructive))'
+    : 'hsl(var(--primary))';
 
   const trackColor = isDone
-    ? 'hsl(142, 71%, 45%, 0.12)'
+    ? 'hsl(var(--success) / 0.15)'
     : isOvertime
-    ? 'hsl(0, 72%, 55%, 0.12)'
-    : 'hsl(32, 95%, 55%, 0.1)';
+    ? 'hsl(var(--destructive) / 0.15)'
+    : 'hsl(var(--primary) / 0.15)';
 
   return (
     <svg width={size} height={size} className="-rotate-90">

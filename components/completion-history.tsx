@@ -246,7 +246,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
                 {/* Day header */}
                 <button
                   onClick={() => toggleDay(group.dateKey)}
-                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-medium text-sm text-foreground">{group.label}</span>
@@ -326,7 +326,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleDelete(entry.id); }}
                                 disabled={deletingIds.has(entry.id)}
-                                className="p-1 rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30"
+                                className="p-1 rounded-md text-muted-foreground/40 hover:text-red-600 dark:hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30"
                                 title="Remove from history"
                               >
                                 <X className="w-3.5 h-3.5" />

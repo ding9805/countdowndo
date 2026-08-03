@@ -22,7 +22,7 @@ export function ColorPicker({ value, onChange, size = 'md' }: ColorPickerProps) 
           onClick={() => onChange(c.id)}
           className={`${dotSize} rounded-full transition-all flex-shrink-0 ${
             value === c.id
-              ? `${ringSize} ring-white/70 ring-offset-background scale-110`
+              ? `${ringSize} ring-black/30 dark:ring-white/70 ring-offset-background scale-110`
               : 'hover:scale-110 opacity-70 hover:opacity-100'
           }`}
           style={{ backgroundColor: c.hex }}

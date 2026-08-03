@@ -11,6 +11,7 @@ import { TemplateManagerDialog } from './template-manager-dialog';
 import { Button } from '@/components/ui/button';
 import { Sparkles, Archive, LogIn } from 'lucide-react';
 import { PageToggle } from '@/components/page-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { sortBankTasks, TASK_BANK_SORT_MODES } from '@/lib/task-bank-utils';
@@ -236,6 +237,7 @@ export function TaskBankPage() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
             <PageToggle />
+            <ThemeToggle />
             {isLoggedIn && (
               <Button
                 variant="outline"

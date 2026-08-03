@@ -8,6 +8,7 @@ import { CompletionHistory } from './completion-history';
 import { Dashboard } from './dashboard';
 import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
 import { PageToggle } from './page-toggle';
+import { ThemeToggle } from './theme-toggle';
 import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -61,6 +62,7 @@ export function SequenceApp() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-4 flex-wrap">
             <PageToggle />
+            <ThemeToggle />
             <div className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/40 px-2.5 sm:px-3 py-1.5 rounded-full">
               <ListChecks className="w-3.5 h-3.5" />
               <span className="text-xs font-medium">{tasks?.length ?? 0}<span className="hidden sm:inline"> task{(tasks?.length ?? 0) !== 1 ? 's' : ''}</span></span>
@@ -94,21 +96,21 @@ export function SequenceApp() {
 
       {/* Guest warning banner */}
       {!isLoggedIn && authStatus !== 'loading' && !warningDismissed && (
-        <div className="bg-amber-500/[0.06] border-b border-amber-500/15">
+        <div className="bg-amber-500/10 border-b border-amber-600/20 dark:bg-amber-500/[0.06] dark:border-amber-500/15">
           <div className="max-w-[1200px] mx-auto px-6 py-3 flex items-center justify-between gap-4">
             <div className="flex items-center gap-3 text-sm">
               <div className="p-1.5 rounded-lg bg-amber-500/10">
-                <AlertTriangle className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 flex-shrink-0" />
               </div>
-              <p className="text-amber-200/80 text-xs">
-                You are not logged in. Your tasks and lists <strong className="text-amber-200">will not be saved</strong> — a page refresh will reset everything.{' '}
+              <p className="text-amber-800/90 dark:text-amber-200/80 text-xs">
+                You are not logged in. Your tasks and lists <strong className="text-amber-800 dark:text-amber-200">will not be saved</strong> — a page refresh will reset everything.{' '}
                 <Link href="/login" className="text-primary hover:underline font-medium">Create an account</Link>{' '}
                 to save your data and sync across devices.
               </p>
             </div>
             <button
               onClick={() => setWarningDismissed(true)}
-              className="p-1.5 rounded-lg hover:bg-amber-500/15 text-amber-400/50 hover:text-amber-400 transition-colors flex-shrink-0"
+              className="p-1.5 rounded-lg hover:bg-amber-500/15 text-amber-600/60 hover:text-amber-700 dark:text-amber-400/50 dark:hover:text-amber-400 transition-colors flex-shrink-0"
               title="Dismiss"
             >
               <X className="w-3.5 h-3.5" />

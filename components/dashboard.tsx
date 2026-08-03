@@ -160,17 +160,17 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
       {/* Stat cards */}
       <div className="grid grid-cols-3 gap-2">
         <div className="glass-card rounded-xl p-3 text-center">
-          <Flame className="w-5 h-5 mx-auto mb-1.5 text-orange-400" />
+          <Flame className="w-5 h-5 mx-auto mb-1.5 text-orange-600 dark:text-orange-400" />
           <p className="text-lg font-bold text-foreground">{streak}</p>
           <p className="text-[10px] text-muted-foreground">day streak</p>
         </div>
         <div className="glass-card rounded-xl p-3 text-center">
-          <CheckCircle2 className="w-5 h-5 mx-auto mb-1.5 text-green-400" />
+          <CheckCircle2 className="w-5 h-5 mx-auto mb-1.5 text-green-600 dark:text-green-400" />
           <p className="text-lg font-bold text-foreground">{totalTasks}</p>
           <p className="text-[10px] text-muted-foreground">tasks tracked</p>
         </div>
         <div className="glass-card rounded-xl p-3 text-center">
-          <Clock className="w-5 h-5 mx-auto mb-1.5 text-blue-400" />
+          <Clock className="w-5 h-5 mx-auto mb-1.5 text-blue-600 dark:text-blue-400" />
           <p className="text-lg font-bold text-foreground">{formatHours(totalSeconds)}</p>
           <p className="text-[10px] text-muted-foreground">hours tracked</p>
         </div>

@@ -434,7 +434,7 @@ export function ActiveSession({
                         <button
                           onClick={saveEdit}
                           disabled={!(editName ?? '').trim()}
-                          className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-400 transition-colors disabled:opacity-40"
+                          className="p-1 rounded bg-green-500/20 hover:bg-green-500/30 text-green-600 dark:text-green-400 transition-colors disabled:opacity-40"
                           title="Save changes"
                         >
                           <Check className="w-4 h-4" />
@@ -481,9 +481,9 @@ export function ActiveSession({
                       <span
                         className={`font-mono text-base font-bold flex-shrink-0 ${
                           isDone
-                            ? 'text-green-400'
+                            ? 'text-green-600 dark:text-green-400'
                             : isOvertime
-                            ? 'text-red-400'
+                            ? 'text-red-600 dark:text-red-400'
                             : 'text-foreground'
                         }`}
                       >
@@ -503,8 +503,8 @@ export function ActiveSession({
                           onClick={() => onMarkDone?.(task?.id)}
                           className={`p-1.5 rounded-lg transition-colors ${
                             isDone
-                              ? 'bg-green-500/30 text-green-300 hover:bg-green-500/40'
-                              : 'bg-green-500/15 hover:bg-green-500/25 text-green-400'
+                              ? 'bg-green-500/30 text-green-700 dark:text-green-300 hover:bg-green-500/40'
+                              : 'bg-green-500/15 hover:bg-green-500/25 text-green-600 dark:text-green-400'
                           }`}
                           title={isDone ? 'Uncheck task' : 'Mark done'}
                         >

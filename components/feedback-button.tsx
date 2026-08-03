@@ -10,9 +10,9 @@ import { toast } from 'sonner';
 type Category = 'bug' | 'feature' | 'general';
 
 const categories: { value: Category; label: string; icon: React.ReactNode; color: string }[] = [
-  { value: 'bug', label: 'Bug Report', icon: <Bug className="w-4 h-4" />, color: 'text-red-400 bg-red-400/10 border-red-400/30 hover:bg-red-400/20' },
-  { value: 'feature', label: 'Feature Request', icon: <Lightbulb className="w-4 h-4" />, color: 'text-amber-400 bg-amber-400/10 border-amber-400/30 hover:bg-amber-400/20' },
-  { value: 'general', label: 'General', icon: <MessageCircle className="w-4 h-4" />, color: 'text-blue-400 bg-blue-400/10 border-blue-400/30 hover:bg-blue-400/20' },
+  { value: 'bug', label: 'Bug Report', icon: <Bug className="w-4 h-4" />, color: 'text-red-600 dark:text-red-400 bg-red-500/10 border-red-600/30 dark:border-red-400/30 hover:bg-red-500/20' },
+  { value: 'feature', label: 'Feature Request', icon: <Lightbulb className="w-4 h-4" />, color: 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-600/30 dark:border-amber-400/30 hover:bg-amber-500/20' },
+  { value: 'general', label: 'General', icon: <MessageCircle className="w-4 h-4" />, color: 'text-blue-600 dark:text-blue-400 bg-blue-500/10 border-blue-600/30 dark:border-blue-400/30 hover:bg-blue-500/20' },
 ];
 
 export function FeedbackButton() {

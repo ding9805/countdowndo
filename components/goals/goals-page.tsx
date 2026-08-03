@@ -9,6 +9,7 @@ import { GoalForm, GoalFormData } from './goal-form';
 import { Button } from '@/components/ui/button';
 import { Target, LogIn, Plus } from 'lucide-react';
 import { PageToggle } from '@/components/page-toggle';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 
@@ -141,6 +142,7 @@ export function GoalsPage() {
           </div>
           <div className="flex items-center gap-1.5 sm:gap-3 flex-wrap">
             <PageToggle />
+            <ThemeToggle />
             {isLoggedIn && (
               <Button
                 size="sm"
