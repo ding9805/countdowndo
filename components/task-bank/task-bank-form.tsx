@@ -136,9 +136,8 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     </div>
   );
 
-  // Advanced fields are always visible on desktop (lg:block) and behind a
-  // "More options" toggle on mobile. Kept together so both the inline card and
-  // the edit dialog can compose them in a single collapsible block.
+  // Keep the secondary fields in a compact grid so the create card and edit
+  // dialog use the same layout.
   const advancedFields = (
     <>
       <div>
@@ -210,6 +209,13 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
     </>
   );
 
+  const formFields = (
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      {templateField}
+      {advancedFields}
+    </div>
+  );
+
   if (inline) {
     return (
       <div className="glass-card rounded-xl p-4 sm:p-5 mb-6 lg:mb-0 lg:sticky lg:top-20 space-y-4">
@@ -222,9 +228,8 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
 
         {nameField}
 
-        <div className={`${showAdvanced ? 'block space-y-4' : 'hidden'} lg:block lg:space-y-4`}>
-          {templateField}
-          {advancedFields}
+        <div className={`${showAdvanced ? 'block' : 'hidden'} lg:block`}>
+          {formFields}
         </div>
 
         <div className="flex items-center gap-2 pt-1">
@@ -258,9 +263,8 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
           <DialogTitle>{mode === 'create' ? 'New Task' : 'Edit Task'}</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {templateField}
           {nameField}
-          {advancedFields}
+          {formFields}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>

@@ -1,6 +1,6 @@
-import { BankTask, TaskBankSortMode } from './types';
+import { BankTask, TASK_COLORS, TaskBankSortMode } from './types';
 
-export const TASK_BANK_SORT_MODES = ['recent', 'due', 'alpha', 'tag'] as const;
+export const TASK_BANK_SORT_MODES = ['recent', 'due', 'alpha', 'tag', 'color'] as const;
 
 export function sortBankTasks(tasks: BankTask[], mode: TaskBankSortMode): BankTask[] {
   const sorted = [...tasks];
@@ -52,6 +52,20 @@ export function sortBankTasks(tasks: BankTask[], mode: TaskBankSortMode): BankTa
         if (a.dueDate) return -1;
         if (b.dueDate) return 1;
         return b.createdAt.localeCompare(a.createdAt);
+      });
+      break;
+    }
+
+    case 'color': {
+      const alphaCmp = (a: BankTask, b: BankTask) => {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        return cmp !== 0 ? cmp : b.createdAt.localeCompare(a.createdAt);
+      };
+      const colorIndex = (task: BankTask) => TASK_COLORS.findIndex((color) => color.id === task.color);
+
+      sorted.sort((a, b) => {
+        const cmp = colorIndex(a) - colorIndex(b);
+        return cmp !== 0 ? cmp : alphaCmp(a, b);
       });
       break;
     }

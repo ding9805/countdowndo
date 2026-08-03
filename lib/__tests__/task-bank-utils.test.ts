@@ -54,6 +54,16 @@ describe('sortBankTasks', () => {
     expect(sortBankTasks(tagged, 'tag').map((t) => t.id)).toEqual(['a', 'b', 'z', 'n']);
   });
 
+  test('color: orders by palette, then by name', () => {
+    const colored = [
+      makeTask({ id: 'p', name: 'Purple task', color: 'purple' }),
+      makeTask({ id: 'o', name: 'Orange task', color: 'orange' }),
+      makeTask({ id: 'b', name: 'Blue task', color: 'blue' }),
+      makeTask({ id: 'a', name: 'Another blue task', color: 'blue' }),
+    ];
+    expect(sortBankTasks(colored, 'color').map((t) => t.id)).toEqual(['o', 'a', 'b', 'p']);
+  });
+
   test('does not mutate the input array', () => {
     const original = [...tasks];
     sortBankTasks(tasks, 'due');

@@ -291,6 +291,7 @@ export function TaskBankPage() {
                   <option value="due">Due date</option>
                   <option value="alpha">A–Z</option>
                   <option value="tag">Tags</option>
+                  <option value="color">Color</option>
                 </select>
               </div>
             </div>

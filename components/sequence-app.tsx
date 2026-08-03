@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import { useSessionEngine } from '@/hooks/use-session-engine';
 import { TaskInputPanel } from './task-input-panel';
 import { ActiveSession } from './active-session';
-import { TimerSoundSettings } from './timer-sound-settings';
-import { TimerChime } from '@/lib/use-timer-sound';
+import type { TimerChime } from '@/lib/use-timer-sound';
+import { DEFAULT_TIMER_SETTINGS, readTimerSettings, writeTimerSettings } from '@/lib/timer-settings';
 import { CompletionHistory } from './completion-history';
 import { Dashboard } from './dashboard';
 import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
@@ -15,32 +15,28 @@ import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
 
-const TIMER_SETTINGS_KEY = 'countdowndo-timer-settings';
-
 export function SequenceApp() {
   const { data: authSession, status: authStatus } = useSession() || {};
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
   const [warningDismissed, setWarningDismissed] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<'history' | 'dashboard'>('history');
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
-  const [alarmEnabled, setAlarmEnabled] = useState(true);
-  const [chime, setChime] = useState<TimerChime>('double-beep');
-  const [volume, setVolume] = useState(0.3);
+  const [alarmEnabled, setAlarmEnabled] = useState(DEFAULT_TIMER_SETTINGS.alarmEnabled);
+  const [chime, setChime] = useState<TimerChime>(DEFAULT_TIMER_SETTINGS.chime);
+  const [volume, setVolume] = useState(DEFAULT_TIMER_SETTINGS.volume);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   useEffect(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem(TIMER_SETTINGS_KEY) || '{}');
-      if (typeof saved.alarmEnabled === 'boolean') setAlarmEnabled(saved.alarmEnabled);
-      if (saved.chime === 'double-beep' || saved.chime === 'bell' || saved.chime === 'digital' || saved.chime === 'soft-pulse') setChime(saved.chime);
-      if (typeof saved.volume === 'number') setVolume(Math.min(1, Math.max(0, saved.volume)));
-    } catch {}
+    const saved = readTimerSettings();
+    setAlarmEnabled(saved.alarmEnabled);
+    setChime(saved.chime);
+    setVolume(saved.volume);
     setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    try { localStorage.setItem(TIMER_SETTINGS_KEY, JSON.stringify({ alarmEnabled, chime, volume })); } catch {}
+    writeTimerSettings({ alarmEnabled, chime, volume });
   }, [settingsLoaded, alarmEnabled, chime, volume]);
 
   const {
@@ -151,15 +147,6 @@ export function SequenceApp() {
 
         <div className={`grid grid-cols-1 ${isLoggedIn ? 'lg:grid-cols-[1fr_340px]' : ''} gap-8`}>
           <div>
-            <TimerSoundSettings
-              alarmEnabled={alarmEnabled}
-              chime={chime}
-              volume={volume}
-              onAlarmEnabledChange={setAlarmEnabled}
-              onChimeChange={setChime}
-              onVolumeChange={setVolume}
-            />
-            <div className="h-6" />
             {!isSession ? (
               <TaskInputPanel
                 tasks={tasks}

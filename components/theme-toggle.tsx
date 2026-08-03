@@ -1,87 +1,49 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Moon, Sun, SunMoon } from 'lucide-react'
+import { Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  getAutomaticTheme,
-  isThemeMode,
-  readThemeMode,
-  THEME_MODE_STORAGE_KEY,
-  type ThemeMode,
-} from '@/lib/theme'
+import { readThemeMode, THEME_MODE_STORAGE_KEY, type AppliedTheme } from '@/lib/theme'
 
 export function ThemeToggle() {
-  const { setTheme } = useTheme()
+  const { resolvedTheme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const [mode, setMode] = useState<ThemeMode>('auto')
+  const [currentTheme, setCurrentTheme] = useState<AppliedTheme>('dark')
 
   useEffect(() => {
     setMounted(true)
-    setMode(readThemeMode())
+    const mode = readThemeMode()
+    setCurrentTheme(mode === 'auto' ? (resolvedTheme === 'light' ? 'light' : 'dark') : mode)
 
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === THEME_MODE_STORAGE_KEY) setMode(readThemeMode())
+      if (event.key === THEME_MODE_STORAGE_KEY) {
+        const nextMode = readThemeMode()
+        setCurrentTheme(nextMode === 'auto' ? (resolvedTheme === 'light' ? 'light' : 'dark') : nextMode)
+      }
     }
 
     window.addEventListener('storage', handleStorage)
     return () => window.removeEventListener('storage', handleStorage)
-  }, [])
+  }, [resolvedTheme])
 
-  const selectMode = (value: string) => {
-    if (!isThemeMode(value)) return
-
-    localStorage.setItem(THEME_MODE_STORAGE_KEY, value)
-    setMode(value)
-    setTheme(value === 'auto' ? getAutomaticTheme() : value)
+  const toggleTheme = () => {
+    const nextTheme = currentTheme === 'dark' ? 'light' : 'dark'
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, nextTheme)
+    setCurrentTheme(nextTheme)
+    setTheme(nextTheme)
   }
 
-  const currentIcon = mode === 'auto'
-    ? <SunMoon className="h-4 w-4" />
-    : mode === 'dark'
-    ? <Moon className="h-4 w-4" />
-    : <Sun className="h-4 w-4" />
-  const modeLabel = mode === 'auto' ? 'Automatic' : mode === 'dark' ? 'Dark' : 'Light'
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          title={mounted ? `${modeLabel} theme` : 'Theme settings'}
-          aria-label={mounted ? `${modeLabel} theme` : 'Theme settings'}
-        >
-          {mounted ? currentIcon : <span className="h-4 w-4" />}
-          <span className="sr-only">Theme settings</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuLabel>Appearance</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={mounted ? mode : 'auto'} onValueChange={selectMode}>
-          <DropdownMenuRadioItem value="auto">
-            <SunMoon className="mr-2 h-4 w-4" />
-            Automatic (local time)
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="light">
-            <Sun className="mr-2 h-4 w-4" />
-            Light
-          </DropdownMenuRadioItem>
-          <DropdownMenuRadioItem value="dark">
-            <Moon className="mr-2 h-4 w-4" />
-            Dark
-          </DropdownMenuRadioItem>
-        </DropdownMenuRadioGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={toggleTheme}
+      title={mounted ? `Switch to ${currentTheme === 'dark' ? 'light' : 'dark'} mode` : 'Toggle theme'}
+      aria-label={mounted ? `Switch to ${currentTheme === 'dark' ? 'light' : 'dark'} mode` : 'Toggle theme'}
+    >
+      {mounted ? (currentTheme === 'dark' ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />) : <span className="h-4 w-4" />}
+      <span className="sr-only">Toggle theme</span>
+    </Button>
   )
 }
