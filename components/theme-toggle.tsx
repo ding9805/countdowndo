@@ -1,32 +1,87 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Moon, Sun } from 'lucide-react'
+import { Moon, Sun, SunMoon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  getAutomaticTheme,
+  isThemeMode,
+  readThemeMode,
+  THEME_MODE_STORAGE_KEY,
+  type ThemeMode,
+} from '@/lib/theme'
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const [mode, setMode] = useState<ThemeMode>('auto')
 
-  useEffect(() => setMounted(true), [])
+  useEffect(() => {
+    setMounted(true)
+    setMode(readThemeMode())
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === THEME_MODE_STORAGE_KEY) setMode(readThemeMode())
+    }
+
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+
+  const selectMode = (value: string) => {
+    if (!isThemeMode(value)) return
+
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, value)
+    setMode(value)
+    setTheme(value === 'auto' ? getAutomaticTheme() : value)
+  }
+
+  const currentIcon = mode === 'auto'
+    ? <SunMoon className="h-4 w-4" />
+    : mode === 'dark'
+    ? <Moon className="h-4 w-4" />
+    : <Sun className="h-4 w-4" />
+  const modeLabel = mode === 'auto' ? 'Automatic' : mode === 'dark' ? 'Dark' : 'Light'
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-      title={mounted && theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-    >
-      {mounted ? (
-        <>
-          <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-        </>
-      ) : (
-        <span className="h-4 w-4" />
-      )}
-      <span className="sr-only">Toggle theme</span>
-    </Button>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          title={mounted ? `${modeLabel} theme` : 'Theme settings'}
+          aria-label={mounted ? `${modeLabel} theme` : 'Theme settings'}
+        >
+          {mounted ? currentIcon : <span className="h-4 w-4" />}
+          <span className="sr-only">Theme settings</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel>Appearance</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={mounted ? mode : 'auto'} onValueChange={selectMode}>
+          <DropdownMenuRadioItem value="auto">
+            <SunMoon className="mr-2 h-4 w-4" />
+            Automatic (local time)
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="light">
+            <Sun className="mr-2 h-4 w-4" />
+            Light
+          </DropdownMenuRadioItem>
+          <DropdownMenuRadioItem value="dark">
+            <Moon className="mr-2 h-4 w-4" />
+            Dark
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
