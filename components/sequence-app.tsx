@@ -23,6 +23,7 @@ export function SequenceApp() {
   const [bankPickerOpen, setBankPickerOpen] = useState(false);
   const [alarmEnabled, setAlarmEnabled] = useState(DEFAULT_TIMER_SETTINGS.alarmEnabled);
   const [chime, setChime] = useState<TimerChime>(DEFAULT_TIMER_SETTINGS.chime);
+  const [sessionVolume, setSessionVolume] = useState(DEFAULT_TIMER_SETTINGS.sessionVolume);
   const [volume, setVolume] = useState(DEFAULT_TIMER_SETTINGS.volume);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
 
@@ -30,14 +31,15 @@ export function SequenceApp() {
     const saved = readTimerSettings();
     setAlarmEnabled(saved.alarmEnabled);
     setChime(saved.chime);
+    setSessionVolume(saved.sessionVolume);
     setVolume(saved.volume);
     setSettingsLoaded(true);
   }, []);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    writeTimerSettings({ alarmEnabled, chime, volume });
-  }, [settingsLoaded, alarmEnabled, chime, volume]);
+    writeTimerSettings({ alarmEnabled, chime, sessionVolume, volume });
+  }, [settingsLoaded, alarmEnabled, chime, sessionVolume, volume]);
 
   const {
     tasks,
@@ -64,7 +66,7 @@ export function SequenceApp() {
     handleDeleteTask,
     handleEditTask,
     handleReorder,
-  } = useSessionEngine(isLoggedIn, alarmEnabled, chime, volume);
+  } = useSessionEngine(isLoggedIn, alarmEnabled, chime, sessionVolume);
 
   return (
     <div className="min-h-screen bg-background">

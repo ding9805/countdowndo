@@ -77,9 +77,11 @@ export function SettingsPage() {
             <TimerSoundSettings
               alarmEnabled={timerSettings.alarmEnabled}
               chime={timerSettings.chime}
+              sessionVolume={timerSettings.sessionVolume}
               volume={timerSettings.volume}
               onAlarmEnabledChange={(alarmEnabled) => setTimerSettings((current) => ({ ...current, alarmEnabled }))}
               onChimeChange={(chime: TimerChime) => setTimerSettings((current) => ({ ...current, chime }))}
+              onSessionVolumeChange={(sessionVolume) => setTimerSettings((current) => ({ ...current, sessionVolume }))}
               onVolumeChange={(volume) => setTimerSettings((current) => ({ ...current, volume }))}
             />
           </section>

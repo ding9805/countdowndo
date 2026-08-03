@@ -9,18 +9,22 @@ import { TIMER_CHIMES, TimerChime, playTimerSound } from '@/lib/use-timer-sound'
 interface TimerSoundSettingsProps {
   alarmEnabled: boolean;
   chime: TimerChime;
+  sessionVolume: number;
   volume: number;
   onAlarmEnabledChange: (enabled: boolean) => void;
   onChimeChange: (chime: TimerChime) => void;
+  onSessionVolumeChange: (volume: number) => void;
   onVolumeChange: (volume: number) => void;
 }
 
 export function TimerSoundSettings({
   alarmEnabled,
   chime,
+  sessionVolume,
   volume,
   onAlarmEnabledChange,
   onChimeChange,
+  onSessionVolumeChange,
   onVolumeChange,
 }: TimerSoundSettingsProps) {
   return (
@@ -72,9 +76,31 @@ export function TimerSoundSettings({
 
       <div className={`space-y-1.5 ${!alarmEnabled ? 'opacity-50' : ''}`}>
         <div className="flex items-center justify-between">
+          <Label htmlFor="session-volume" className="text-xs text-muted-foreground flex items-center gap-1.5">
+            {sessionVolume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+            Session volume
+          </Label>
+          <span className="text-xs text-muted-foreground">{Math.round(sessionVolume * 100)}%</span>
+        </div>
+        <input
+          id="session-volume"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          value={sessionVolume}
+          disabled={!alarmEnabled}
+          onChange={(event) => onSessionVolumeChange(Number(event.target.value))}
+          className="w-full accent-primary disabled:cursor-not-allowed"
+        />
+        <p className="text-[11px] text-muted-foreground">Used for chimes during an active session.</p>
+      </div>
+
+      <div className={`space-y-1.5 ${!alarmEnabled ? 'opacity-50' : ''}`}>
+        <div className="flex items-center justify-between">
           <Label htmlFor="timer-volume" className="text-xs text-muted-foreground flex items-center gap-1.5">
             {volume === 0 ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
-            Volume
+            Sound volume
           </Label>
           <span className="text-xs text-muted-foreground">{Math.round(volume * 100)}%</span>
         </div>
@@ -89,6 +115,7 @@ export function TimerSoundSettings({
           onChange={(event) => onVolumeChange(Number(event.target.value))}
           className="w-full accent-primary disabled:cursor-not-allowed"
         />
+        <p className="text-[11px] text-muted-foreground">Used by the Test sound button.</p>
       </div>
     </div>
   );

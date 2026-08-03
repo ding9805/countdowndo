@@ -12,7 +12,7 @@ const SAVE_DEBOUNCE = 1000;
 // (load/poll/save/conflict-resolution), and task-list mutations for the
 // active session. Extracted out of SequenceApp so that component can stay
 // focused on rendering the three views (planning, active session, sidebar).
-export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chime: TimerChime, volume: number) {
+export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chime: TimerChime, sessionVolume: number) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -366,12 +366,12 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       const remaining = getRemainingTime(task);
       if (remaining <= 0 && !soundPlayedRef.current?.has(task?.id)) {
         soundPlayedRef.current?.add(task?.id);
-        if (alarmEnabled) playTimerSound({ chime, volume });
+        if (alarmEnabled) playTimerSound({ chime, volume: sessionVolume });
         saveSessionToDb();
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elapsedSeconds, tasks, sessionState, alarmEnabled, chime, volume]);
+  }, [elapsedSeconds, tasks, sessionState, alarmEnabled, chime, sessionVolume]);
 
   const handleStartSession = () => {
     if ((tasks?.length ?? 0) === 0) {
