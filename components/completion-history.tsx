@@ -101,7 +101,8 @@ function formatTimeOfDay(dateStr: string): string {
 export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [entries, setEntries] = useState<CompletionEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set());
+  // Keep every day collapsed by default; users can expand only the days they need.
+  const [expandedDays, setExpandedDays] = useState<Set<string>>(new Set());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(new Set());
 
   const fetchHistory = useCallback(async () => {
@@ -173,7 +174,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
   };
 
   const toggleDay = (dateKey: string) => {
-    setCollapsedDays(prev => {
+    setExpandedDays(prev => {
       const next = new Set(prev);
       if (next.has(dateKey)) next.delete(dateKey);
       else next.add(dateKey);
@@ -211,7 +212,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
       {!loading && dayGroups.length > 0 && (
         <div className="flex items-center justify-end gap-2">
           <button
-            onClick={() => setCollapsedDays(new Set())}
+            onClick={() => setExpandedDays(new Set(dayGroups.map(g => g.dateKey)))}
             className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
             title="Expand all days"
           >
@@ -219,7 +220,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
             Expand all
           </button>
           <button
-            onClick={() => setCollapsedDays(new Set(dayGroups.map(g => g.dateKey)))}
+            onClick={() => setExpandedDays(new Set())}
             className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
             title="Collapse all days"
           >
@@ -240,7 +241,7 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
       ) : (
         <div className="space-y-3">
           {dayGroups.map(group => {
-            const isCollapsed = collapsedDays.has(group.dateKey);
+            const isExpanded = expandedDays.has(group.dateKey);
             return (
               <div key={group.dateKey} className="glass-card rounded-xl overflow-hidden">
                 {/* Day header */}
@@ -258,17 +259,17 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
                     <span className="text-xs text-primary font-medium">
                       {formatDuration(group.totalSeconds)}
                     </span>
-                    {isCollapsed ? (
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    ) : (
+                    {isExpanded ? (
                       <ChevronUp className="w-4 h-4 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
                     )}
                   </div>
                 </button>
 
                 {/* Color breakdown bar + per-color hours */}
                 <AnimatePresence initial={false}>
-                  {!isCollapsed && (
+                  {isExpanded && (
                     <motion.div
                       initial={{ height: 0, opacity: 0 }}
                       animate={{ height: 'auto', opacity: 1 }}

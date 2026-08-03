@@ -79,7 +79,7 @@ export interface BankTaskTemplate {
 export type SessionState = 'idle' | 'running' | 'paused';
 export type SessionMode = 'continuous';
 export type TaskOrder = 'desc' | 'asc';
-export type TaskBankSortMode = 'recent' | 'due' | 'alpha';
+export type TaskBankSortMode = 'recent' | 'due' | 'alpha' | 'tag';
 
 export function getTaskColorHex(colorId: TaskColorId | string | undefined): string {
   const found = TASK_COLORS.find((c) => c.id === colorId);

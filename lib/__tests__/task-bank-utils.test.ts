@@ -44,6 +44,16 @@ describe('sortBankTasks', () => {
     expect(result.map((t) => t.id)).toEqual(['e', 'f', 'd', 'b', 'a', 'c']);
   });
 
+  test('tag: orders by first tag, then puts untagged tasks last', () => {
+    const tagged = [
+      makeTask({ id: 'z', name: 'Zebra', tags: ['Work'] }),
+      makeTask({ id: 'a', name: 'Alpha', tags: ['home', 'urgent'] }),
+      makeTask({ id: 'b', name: 'Beta', tags: ['Home'] }),
+      makeTask({ id: 'n', name: 'No tag' }),
+    ];
+    expect(sortBankTasks(tagged, 'tag').map((t) => t.id)).toEqual(['a', 'b', 'z', 'n']);
+  });
+
   test('does not mutate the input array', () => {
     const original = [...tasks];
     sortBankTasks(tasks, 'due');

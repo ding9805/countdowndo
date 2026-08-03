@@ -1,6 +1,6 @@
 import { BankTask, TaskBankSortMode } from './types';
 
-export const TASK_BANK_SORT_MODES = ['recent', 'due', 'alpha'] as const;
+export const TASK_BANK_SORT_MODES = ['recent', 'due', 'alpha', 'tag'] as const;
 
 export function sortBankTasks(tasks: BankTask[], mode: TaskBankSortMode): BankTask[] {
   const sorted = [...tasks];
@@ -19,6 +19,24 @@ export function sortBankTasks(tasks: BankTask[], mode: TaskBankSortMode): BankTa
         return cmp !== 0 ? cmp : b.createdAt.localeCompare(a.createdAt);
       });
       break;
+
+    case 'tag': {
+      const alphaCmp = (a: BankTask, b: BankTask) => {
+        const cmp = a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+        return cmp !== 0 ? cmp : b.createdAt.localeCompare(a.createdAt);
+      };
+      const firstTag = (task: BankTask) => [...task.tags].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))[0] ?? '';
+
+      sorted.sort((a, b) => {
+        const aTag = firstTag(a);
+        const bTag = firstTag(b);
+        if (!aTag && bTag) return 1;
+        if (aTag && !bTag) return -1;
+        const cmp = aTag.localeCompare(bTag, undefined, { sensitivity: 'base' });
+        return cmp !== 0 ? cmp : alphaCmp(a, b);
+      });
+      break;
+    }
 
     case 'due': {
       const alphaCmp = (a: BankTask, b: BankTask) => {

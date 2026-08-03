@@ -31,6 +31,14 @@ function formatHours(seconds: number): string {
   return `${h.toFixed(1)}h`;
 }
 
+function getWeekStart(date: Date, weeksAgo = 0): Date {
+  const start = new Date(date);
+  start.setHours(0, 0, 0, 0);
+  const daysSinceMonday = (start.getDay() + 6) % 7;
+  start.setDate(start.getDate() - daysSinceMonday - (weeksAgo * 7));
+  return start;
+}
+
 export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +82,22 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
   // Metrics
   const totalTasks = entries.length;
   const totalSeconds = entries.reduce((s, e) => s + e.durationSeconds, 0);
+
+  const weeklyTotals = useMemo(() => {
+    const thisWeekStart = getWeekStart(new Date());
+    const lastWeekStart = getWeekStart(new Date(), 1);
+    const thisWeekEnd = new Date(thisWeekStart);
+    thisWeekEnd.setDate(thisWeekEnd.getDate() + 7);
+    const thisWeekSeconds = entries.reduce((total, entry) => {
+      const completedAt = new Date(entry.completedAt);
+      return completedAt >= thisWeekStart && completedAt < thisWeekEnd ? total + entry.durationSeconds : total;
+    }, 0);
+    const lastWeekSeconds = entries.reduce((total, entry) => {
+      const completedAt = new Date(entry.completedAt);
+      return completedAt >= lastWeekStart && completedAt < thisWeekStart ? total + entry.durationSeconds : total;
+    }, 0);
+    return { thisWeekSeconds, lastWeekSeconds };
+  }, [entries]);
 
   // Streak: count consecutive days with at least one task, ending today or yesterday
   const streak = useMemo(() => {
@@ -158,7 +182,7 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <div className="glass-card rounded-xl p-3 text-center">
           <Flame className="w-5 h-5 mx-auto mb-1.5 text-orange-600 dark:text-orange-400" />
           <p className="text-lg font-bold text-foreground">{streak}</p>
@@ -173,6 +197,15 @@ export function Dashboard({ isLoggedIn }: { isLoggedIn: boolean }) {
           <Clock className="w-5 h-5 mx-auto mb-1.5 text-blue-600 dark:text-blue-400" />
           <p className="text-lg font-bold text-foreground">{formatHours(totalSeconds)}</p>
           <p className="text-[10px] text-muted-foreground">hours tracked</p>
+        </div>
+        <div className="glass-card rounded-xl p-3 text-center col-span-2 sm:col-span-1">
+          <Calendar className="w-5 h-5 mx-auto mb-1.5 text-violet-600 dark:text-violet-400" />
+          <div className="flex items-baseline justify-center gap-1.5 text-sm font-bold text-foreground">
+            <span>{formatHours(weeklyTotals.lastWeekSeconds)}</span>
+            <span className="text-muted-foreground/60">→</span>
+            <span>{formatHours(weeklyTotals.thisWeekSeconds)}</span>
+          </div>
+          <p className="text-[10px] text-muted-foreground">last week → this week</p>
         </div>
       </div>
 

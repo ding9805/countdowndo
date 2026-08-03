@@ -290,6 +290,7 @@ export function TaskBankPage() {
                   <option value="recent">Recently added</option>
                   <option value="due">Due date</option>
                   <option value="alpha">A–Z</option>
+                  <option value="tag">Tags</option>
                 </select>
               </div>
             </div>

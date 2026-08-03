@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, BankTask, SessionState, SessionMode, TaskOrder, TaskColorId } from '@/lib/types';
 import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
-import { playTimerSound } from '@/lib/use-timer-sound';
+import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { toast } from 'sonner';
 
@@ -12,7 +12,7 @@ const SAVE_DEBOUNCE = 1000;
 // (load/poll/save/conflict-resolution), and task-list mutations for the
 // active session. Extracted out of SequenceApp so that component can stay
 // focused on rendering the three views (planning, active session, sidebar).
-export function useSessionEngine(isLoggedIn: boolean) {
+export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chime: TimerChime, volume: number) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [sessionStartTime, setSessionStartTime] = useState<number | null>(null);
@@ -366,12 +366,12 @@ export function useSessionEngine(isLoggedIn: boolean) {
       const remaining = getRemainingTime(task);
       if (remaining <= 0 && !soundPlayedRef.current?.has(task?.id)) {
         soundPlayedRef.current?.add(task?.id);
-        playTimerSound();
+        if (alarmEnabled) playTimerSound({ chime, volume });
         saveSessionToDb();
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [elapsedSeconds, tasks, sessionState]);
+  }, [elapsedSeconds, tasks, sessionState, alarmEnabled, chime, volume]);
 
   const handleStartSession = () => {
     if ((tasks?.length ?? 0) === 0) {
