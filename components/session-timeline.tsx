@@ -10,6 +10,7 @@ import {
   ChevronsUp,
   Crosshair,
   Flag,
+  Maximize2,
   Minus,
   Pencil,
   Plus,
@@ -338,6 +339,17 @@ export function SessionTimeline({
     }
   };
 
+  const handleZoomToFit = () => {
+    if (totalSeconds <= 0) return;
+    const element = scrollRef.current;
+    const availableHeight = element
+      ? Math.max(0, element.clientHeight - PAD_TOP - PAD_BOTTOM)
+      : 0;
+    const minutes = totalSeconds / 60;
+    const fittedScale = minutes > 0 ? Math.floor(availableHeight / minutes) : DEFAULT_PIXELS_PER_MINUTE;
+    updatePixelsPerMinute(fittedScale);
+  };
+
   if (tasks.length === 0) {
     return (
       <div className="glass-card rounded-2xl text-center text-muted-foreground py-12" style={{ boxShadow: 'var(--shadow-sm)' }}>
@@ -388,6 +400,31 @@ export function SessionTimeline({
           <span className="w-12 text-right font-mono text-[10px] text-muted-foreground">
             {pixelsPerMinute}px/m
           </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={handleZoomToFit}
+            disabled={totalSeconds <= 0}
+            className="h-8 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground"
+            title="Fit the timeline to the visible panel"
+          >
+            <Maximize2 className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Zoom to fit</span>
+          </Button>
+          {isLive && !followNow && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={handleRecenter}
+              className="h-8 gap-1.5 px-2 text-xs text-primary hover:text-primary"
+              title="Follow the current time"
+            >
+              <Crosshair className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Re-center</span>
+            </Button>
+          )}
         </div>
       </div>
       <div
@@ -796,17 +833,6 @@ export function SessionTimeline({
         </div>
       </div>
 
-      {isLive && !followNow && (
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleRecenter}
-          className="absolute bottom-3 right-3 z-40 rounded-full shadow-md"
-        >
-          <Crosshair className="mr-1.5 h-3.5 w-3.5" />
-          Re-center
-        </Button>
-      )}
     </div>
   );
 }
