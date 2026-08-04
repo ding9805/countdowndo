@@ -8,6 +8,9 @@ import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDo
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TimePicker } from './time-picker';
+import { SessionTimeline } from './session-timeline';
+import { SessionViewToggle } from './session-view-toggle';
+import type { SessionView } from './session-view-toggle';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface ActiveSessionProps {
@@ -19,6 +22,8 @@ interface ActiveSessionProps {
   sessionStartTimestamp: number;
   pausedElapsed: number;
   taskOrder: TaskOrder;
+  sessionView: SessionView;
+  onSessionViewChange: (view: SessionView) => void;
   onToggleOrder: () => void;
   getRemainingTime: (task: Task) => number;
   getProgress: (task: Task) => number;
@@ -41,6 +46,8 @@ export function ActiveSession({
   sessionStartTimestamp,
   pausedElapsed,
   taskOrder,
+  sessionView,
+  onSessionViewChange,
   onToggleOrder,
   getRemainingTime,
   getProgress,
@@ -317,8 +324,9 @@ export function ActiveSession({
 
       {/* Task list with timers */}
       <div className="space-y-2">
-        {(tasks?.length ?? 0) > 0 && (
-          <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <SessionViewToggle value={sessionView} onChange={onSessionViewChange} />
+          {sessionView === 'cards' && (tasks?.length ?? 0) > 0 && (
             <button
               onClick={onToggleOrder}
               className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
@@ -327,8 +335,24 @@ export function ActiveSession({
               <ArrowUpDown className="w-3.5 h-3.5" />
               {isAsc ? 'Earliest last' : 'Earliest first'}
             </button>
-          </div>
-        )}
+          )}
+        </div>
+        {sessionView === 'timeline' ? (
+          <SessionTimeline
+            mode="live"
+            tasks={tasks}
+            sessionState={sessionState}
+            sessionTotalSeconds={sessionTotalSeconds}
+            elapsedSeconds={elapsedSeconds}
+            sessionStartTimestamp={sessionStartTimestamp}
+            pausedElapsed={pausedElapsed}
+            getRemainingTime={getRemainingTime}
+            onMarkDone={onMarkDone}
+            onDeleteTask={onDeleteTask}
+            onEditTask={onEditTask}
+            onReorder={onReorder}
+          />
+        ) : (
         <AnimatePresence initial={false}>
           {displayTasks.map((task: Task, displayIdx: number) => {
             const remaining = getRemainingTime?.(task) ?? 0;
@@ -525,6 +549,7 @@ export function ActiveSession({
             );
           })}
         </AnimatePresence>
+        )}
       </div>
 
       {(tasks?.length ?? 0) === 0 && (

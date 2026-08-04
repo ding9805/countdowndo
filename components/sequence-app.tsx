@@ -11,6 +11,7 @@ import { Dashboard } from './dashboard';
 import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
 import { PageToggle } from './page-toggle';
 import { ThemeToggle } from './theme-toggle';
+import type { SessionView } from './session-view-toggle';
 import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
@@ -26,6 +27,7 @@ export function SequenceApp() {
   const [sessionVolume, setSessionVolume] = useState(DEFAULT_TIMER_SETTINGS.sessionVolume);
   const [volume, setVolume] = useState(DEFAULT_TIMER_SETTINGS.volume);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [sessionView, setSessionView] = useState<SessionView>('cards');
 
   useEffect(() => {
     const saved = readTimerSettings();
@@ -35,6 +37,20 @@ export function SequenceApp() {
     setVolume(saved.volume);
     setSettingsLoaded(true);
   }, []);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('countdowndo-session-view');
+      if (saved === 'cards' || saved === 'timeline') setSessionView(saved);
+    } catch {}
+  }, []);
+
+  const handleSessionViewChange = (view: SessionView) => {
+    setSessionView(view);
+    try {
+      localStorage.setItem('countdowndo-session-view', view);
+    } catch {}
+  };
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -154,6 +170,8 @@ export function SequenceApp() {
                 tasks={tasks}
                 sessionMode={sessionMode}
                 taskOrder={taskOrder}
+                sessionView={sessionView}
+                onSessionViewChange={handleSessionViewChange}
                 planningStartTime={planningStartTime}
                 onToggleOrder={toggleTaskOrder}
                 onPlanningStartTimeChange={setPlanningStartTime}
@@ -175,6 +193,8 @@ export function SequenceApp() {
                 sessionStartTimestamp={sessionStartTime ?? 0}
                 pausedElapsed={pausedElapsed}
                 taskOrder={taskOrder}
+                sessionView={sessionView}
+                onSessionViewChange={handleSessionViewChange}
                 onToggleOrder={toggleTaskOrder}
                 getRemainingTime={getRemainingTime}
                 getProgress={getProgress}

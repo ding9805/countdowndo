@@ -6,6 +6,9 @@ import { ColorPicker } from './color-picker';
 import { formatDuration } from '@/lib/timer-utils';
 import { TimePicker } from './time-picker';
 import { StartTimePicker } from './start-time-picker';
+import { SessionTimeline } from './session-timeline';
+import { SessionViewToggle } from './session-view-toggle';
+import type { SessionView } from './session-view-toggle';
 import { Plus, Play, GripVertical, X, Pencil, Clock, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, ArrowUpDown, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +18,8 @@ interface TaskInputPanelProps {
   tasks: Task[];
   sessionMode: SessionMode;
   taskOrder: TaskOrder;
+  sessionView: SessionView;
+  onSessionViewChange: (view: SessionView) => void;
   planningStartTime: string | null;
   onToggleOrder: () => void;
   onPlanningStartTimeChange: (time: string | null) => void;
@@ -31,6 +36,8 @@ export function TaskInputPanel({
   tasks,
   sessionMode,
   taskOrder,
+  sessionView,
+  onSessionViewChange,
   planningStartTime,
   onToggleOrder,
   onPlanningStartTimeChange,
@@ -328,26 +335,41 @@ export function TaskInputPanel({
       )}
 
       <div className="space-y-2">
-        {(tasks?.length ?? 0) > 0 && (
-          <div className="flex items-center justify-between">
-            <button
-              onClick={onToggleOrder}
-              className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
-              title={isAsc ? 'Showing earliest last → Switch to earliest first' : 'Showing earliest first → Switch to earliest last'}
-            >
-              <ArrowUpDown className="w-3.5 h-3.5" />
-              {isAsc ? 'Earliest last' : 'Earliest first'}
-            </button>
-            <button
-              onClick={() => setShowClearConfirm(true)}
-              className="text-xs px-3 py-1 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
-            >
-              Clear all
-            </button>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <SessionViewToggle value={sessionView} onChange={onSessionViewChange} />
+          <div className="flex items-center gap-2">
+            {sessionView === 'cards' && (tasks?.length ?? 0) > 0 && (
+              <button
+                onClick={onToggleOrder}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors"
+                title={isAsc ? 'Showing earliest last → Switch to earliest first' : 'Showing earliest first → Switch to earliest last'}
+              >
+                <ArrowUpDown className="w-3.5 h-3.5" />
+                {isAsc ? 'Earliest last' : 'Earliest first'}
+              </button>
+            )}
+            {(tasks?.length ?? 0) > 0 && (
+              <button
+                onClick={() => setShowClearConfirm(true)}
+                className="text-xs px-3 py-1 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+              >
+                Clear all
+              </button>
+            )}
           </div>
-        )}
-        <AnimatePresence initial={false}>
-          {displayTasks.map((task: Task, displayIdx: number) => (
+        </div>
+        {sessionView === 'timeline' ? (
+          <SessionTimeline
+            mode="planning"
+            tasks={tasks}
+            planningStartTime={planningStartTime}
+            onDeleteTask={onDeleteTask}
+            onEditTask={onEditTask}
+            onReorder={onReorder}
+          />
+        ) : (
+          <AnimatePresence initial={false}>
+            {displayTasks.map((task: Task, displayIdx: number) => (
             <motion.div
               key={task?.id ?? displayIdx}
               layout="position"
@@ -465,8 +487,9 @@ export function TaskInputPanel({
                 </div>
               )}
             </motion.div>
-          ))}
-        </AnimatePresence>
+            ))}
+          </AnimatePresence>
+        )}
       </div>
 
       {/* Start session button */}
