@@ -10,7 +10,9 @@ import {
   ChevronsUp,
   Crosshair,
   Flag,
+  Minus,
   Pencil,
+  Plus,
   Trash2,
   X,
 } from 'lucide-react';
@@ -38,8 +40,11 @@ const LABEL_LEFT = RAIL_X + CONNECTOR_LENGTH + 10;
 const MIN_LABEL_GAP = 84;
 const EDIT_LABEL_GAP = 210;
 const EDIT_PICKER_GAP = 350;
-const PX_PER_MINUTE = 8;
-const MIN_RAIL_HEIGHT = 420;
+const MIN_PIXELS_PER_MINUTE = 2;
+const MAX_PIXELS_PER_MINUTE = 10;
+const DEFAULT_PIXELS_PER_MINUTE = 5;
+const MIN_RAIL_HEIGHT = 320;
+const TIMELINE_SCALE_KEY = 'countdowndo-timeline-scale';
 const ORANGE = TASK_COLORS[0].hex;
 const GREY = 'hsl(var(--muted-foreground))';
 
@@ -99,11 +104,36 @@ export function SessionTimeline({
   const [showEditPicker, setShowEditPicker] = useState(false);
   const [arrivingIds, setArrivingIds] = useState<Set<string>>(new Set());
   const [followNow, setFollowNow] = useState(true);
+  const [pixelsPerMinute, setPixelsPerMinute] = useState(DEFAULT_PIXELS_PER_MINUTE);
   const announcedIds = useRef<Set<string>>(new Set());
   const arrivalTimeouts = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
+
+  useEffect(() => {
+    try {
+      const savedValue = localStorage.getItem(TIMELINE_SCALE_KEY);
+      if (!savedValue) return;
+      const saved = Number(savedValue);
+      if (Number.isFinite(saved)) {
+        setPixelsPerMinute(
+          Math.min(MAX_PIXELS_PER_MINUTE, Math.max(MIN_PIXELS_PER_MINUTE, saved)),
+        );
+      }
+    } catch {}
+  }, []);
+
+  const updatePixelsPerMinute = (value: number) => {
+    const next = Math.min(
+      MAX_PIXELS_PER_MINUTE,
+      Math.max(MIN_PIXELS_PER_MINUTE, value),
+    );
+    setPixelsPerMinute(next);
+    try {
+      localStorage.setItem(TIMELINE_SCALE_KEY, String(next));
+    } catch {}
+  };
 
   const totalSeconds = useMemo(() => {
     if (isLive && sessionTotalSeconds > 0) return sessionTotalSeconds;
@@ -112,7 +142,7 @@ export function SessionTimeline({
 
   const railHeight = Math.max(
     MIN_RAIL_HEIGHT,
-    (totalSeconds / 60) * PX_PER_MINUTE,
+    (totalSeconds / 60) * pixelsPerMinute,
   );
 
   const anchorMs = useMemo(() => {
@@ -318,6 +348,48 @@ export function SessionTimeline({
 
   return (
     <div className="relative">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/40 bg-secondary/20 px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-foreground">Timeline scale</p>
+          <p className="text-[10px] text-muted-foreground">Adjust line length to reduce scrolling</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => updatePixelsPerMinute(pixelsPerMinute - 1)}
+            disabled={pixelsPerMinute <= MIN_PIXELS_PER_MINUTE}
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            title="Shorten timeline"
+            aria-label="Shorten timeline"
+          >
+            <Minus className="h-3.5 w-3.5" />
+          </button>
+          <input
+            type="range"
+            min={MIN_PIXELS_PER_MINUTE}
+            max={MAX_PIXELS_PER_MINUTE}
+            step={1}
+            value={pixelsPerMinute}
+            onChange={(event) => updatePixelsPerMinute(Number(event.target.value))}
+            className="h-1.5 w-24 cursor-pointer accent-orange-500 sm:w-32"
+            aria-label="Timeline line length"
+            aria-valuetext={`${pixelsPerMinute} pixels per minute`}
+          />
+          <button
+            type="button"
+            onClick={() => updatePixelsPerMinute(pixelsPerMinute + 1)}
+            disabled={pixelsPerMinute >= MAX_PIXELS_PER_MINUTE}
+            className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+            title="Lengthen timeline"
+            aria-label="Lengthen timeline"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+          <span className="w-12 text-right font-mono text-[10px] text-muted-foreground">
+            {pixelsPerMinute}px/m
+          </span>
+        </div>
+      </div>
       <div
         ref={scrollRef}
         onWheel={() => isLive && setFollowNow(false)}
