@@ -8,6 +8,7 @@ import { Providers } from '@/components/providers'
 import { FeedbackButton } from '@/components/feedback-button'
 import { DomainNoticeBanner } from '@/components/domain-notice-banner'
 import { PageTransition } from '@/components/page-transition'
+import type { Viewport } from 'next'
 
 const dmSans = DM_Sans({ subsets: ['latin'], variable: '--font-sans' })
 const jakartaSans = Plus_Jakarta_Sans({ subsets: ['latin'], variable: '--font-display' })
@@ -26,6 +27,13 @@ export const metadata = {
     description: 'Cumulative time-blocking task manager',
     images: ['/og-image.png'],
   },
+}
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 }
 
 export default function RootLayout({
