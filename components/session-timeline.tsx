@@ -658,7 +658,12 @@ export function SessionTimeline({
                       x: { duration: 0.5 },
                       opacity: { duration: 0.2 },
                     }}
-                    style={{ left: LABEL_LEFT, right: 12 }}
+                    style={{
+                      left: LABEL_LEFT,
+                      right: 12,
+                      // Keep the card being edited above every neighboring card.
+                      zIndex: editing ? tasks.length + 1 : tasks.length - index,
+                    }}
                     draggable={!editing}
                     onDragStart={() => { dragItem.current = index; }}
                     onDragOver={(event) => {
