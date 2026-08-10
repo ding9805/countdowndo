@@ -50,6 +50,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
   const [dueDate, setDueDate] = useState(DEFAULTS.dueDate);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [showErrors, setShowErrors] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -76,6 +77,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
     }
     setTagInput('');
     setShowTimePicker(false);
+    setShowErrors(false);
   }, [open, mode, initialGoal]);
 
   const start = parseFloat(startValue);
@@ -85,9 +87,25 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
     Number.isFinite(start) && Number.isFinite(target) && target > start &&
     Number.isInteger(nIntervals) && nIntervals >= 1;
   const chunkSize = validNumbers ? (target - start) / nIntervals : null;
-  const canSubmit = !!name.trim() && !!unit.trim() && !!dueDate && validNumbers && !submitting;
+  const isValid = !!name.trim() && !!unit.trim() && !!dueDate && validNumbers;
+  const canSubmit = isValid && !submitting;
+
+  // Which required fields are empty/invalid. Only surfaced once the user tries
+  // to submit — a fresh form shouldn't open covered in red.
+  const errors = {
+    name: !name.trim(),
+    unit: !unit.trim(),
+    numbers: !validNumbers,
+    dueDate: !dueDate,
+  };
+  const err = (on: boolean) =>
+    showErrors && on ? 'border-destructive ring-1 ring-destructive/40' : '';
 
   const handleSubmit = async () => {
+    if (!isValid) {
+      setShowErrors(true);
+      return;
+    }
     if (!canSubmit) return;
     setSubmitting(true);
     try {
@@ -125,8 +143,11 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
               value={name}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value.slice(0, 100))}
               maxLength={100}
-              className="bg-secondary/60 border-border/50"
+              className={`bg-secondary/60 border-border/50 ${err(errors.name)}`}
             />
+            {showErrors && errors.name && (
+              <p className="text-[11px] text-destructive mt-1.5">Give your goal a name.</p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-3">
@@ -137,7 +158,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
                 inputMode="decimal"
                 value={startValue}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setStartValue(e.target.value)}
-                className="bg-secondary/60 border-border/50"
+                className={`bg-secondary/60 border-border/50 ${err(errors.numbers)}`}
               />
             </div>
             <div>
@@ -148,7 +169,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
                 placeholder="100"
                 value={targetValue}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTargetValue(e.target.value)}
-                className="bg-secondary/60 border-border/50"
+                className={`bg-secondary/60 border-border/50 ${err(errors.numbers)}`}
               />
             </div>
             <div>
@@ -158,10 +179,17 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
                 value={unit}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUnit(e.target.value.slice(0, 30))}
                 maxLength={30}
-                className="bg-secondary/60 border-border/50"
+                className={`bg-secondary/60 border-border/50 ${err(errors.unit)}`}
               />
             </div>
           </div>
+          {showErrors && (errors.numbers || errors.unit) && (
+            <p className="text-[11px] text-destructive -mt-2">
+              {errors.numbers
+                ? 'Target must be a number greater than Start.'
+                : 'Set a unit (e.g. pages, trades).'}
+            </p>
+          )}
 
           <div>
             <label className="text-xs text-muted-foreground mb-1.5 block">Intervals (sessions to finish)</label>
@@ -172,7 +200,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
               max={1000}
               value={intervals}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIntervals(e.target.value)}
-              className="bg-secondary/60 border-border/50"
+              className={`bg-secondary/60 border-border/50 ${err(errors.numbers)}`}
             />
             {chunkSize !== null && (
               <p className="text-xs text-muted-foreground mt-1.5">
@@ -188,8 +216,11 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
               type="date"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
-              className="w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+              className={`w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark] ${err(errors.dueDate)}`}
             />
+            {showErrors && errors.dueDate && (
+              <p className="text-[11px] text-destructive mt-1.5">Pick a due date.</p>
+            )}
           </div>
 
           <div>
@@ -237,8 +268,9 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button
             onClick={handleSubmit}
-            disabled={!canSubmit}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground"
+            disabled={submitting}
+            aria-disabled={!canSubmit}
+            className={`bg-primary hover:bg-primary/90 text-primary-foreground ${!isValid ? 'opacity-50' : ''}`}
           >
             {mode === 'create' ? 'Create Goal' : 'Save Changes'}
           </Button>

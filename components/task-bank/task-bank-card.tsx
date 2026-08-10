@@ -3,7 +3,7 @@
 import React from 'react';
 import { BankTask, getTaskColorHex } from '@/lib/types';
 import { formatDuration } from '@/lib/timer-utils';
-import { Pencil, Trash2, CalendarDays, Zap } from 'lucide-react';
+import { Pencil, Trash2, CalendarDays, Zap, Plus } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
 import { motion } from 'framer-motion';
 import { isOverdue, formatDueDate, dueDayDiff } from '@/lib/task-bank-utils';
@@ -12,21 +12,39 @@ interface TaskBankCardProps {
   task: BankTask;
   selectable?: boolean;
   selected?: boolean;
+  /** Times this task has been added in the current picker session. */
+  addedCount?: number;
   onToggleSelect?: (id: string) => void;
   onEdit?: (task: BankTask) => void;
   onDelete?: (id: string) => void;
 }
 
-export function TaskBankCard({ task, selectable, selected, onToggleSelect, onEdit, onDelete }: TaskBankCardProps) {
+export function TaskBankCard({ task, selectable, selected, addedCount = 0, onToggleSelect, onEdit, onDelete }: TaskBankCardProps) {
   const dueToday = !!task.dueDate && dueDayDiff(task.dueDate) === 0;
+  // Repeatable tasks show a running tally instead of a one-shot checkbox.
+  const repeatable = selectable && !task.isOneOff;
   const content = (
     <>
       {selectable && (
-        <Checkbox
-          checked={!!selected}
-          onCheckedChange={() => onToggleSelect?.(task.id)}
-          className="shrink-0"
-        />
+        repeatable ? (
+          <span
+            onClick={() => onToggleSelect?.(task.id)}
+            title={addedCount > 0 ? `Added ${addedCount}×` : 'Tap to add — you can add it more than once'}
+            className={`shrink-0 w-7 h-6 rounded-full inline-flex items-center justify-center text-[11px] font-semibold ${
+              addedCount > 0
+                ? 'bg-primary/15 text-primary'
+                : 'bg-secondary/60 text-muted-foreground'
+            }`}
+          >
+            {addedCount > 0 ? `×${addedCount}` : <Plus className="w-3.5 h-3.5" />}
+          </span>
+        ) : (
+          <Checkbox
+            checked={!!selected}
+            onCheckedChange={() => onToggleSelect?.(task.id)}
+            className="shrink-0"
+          />
+        )
       )}
       <div className="flex-1 min-w-0" onClick={selectable ? () => onToggleSelect?.(task.id) : undefined}>
         <p className="text-foreground font-medium break-words">{task.name}</p>
@@ -87,7 +105,7 @@ export function TaskBankCard({ task, selectable, selected, onToggleSelect, onEdi
       exit={{ opacity: 0 }}
       className={`glass-card rounded-xl overflow-hidden flex items-center gap-3 px-4 py-3 transition-all ${
         selectable ? 'cursor-pointer' : ''
-      } ${selected ? 'ring-2 ring-primary/60' : ''} ${dueToday ? 'border-2 border-red-500' : ''}`}
+      } ${selected && !repeatable ? 'ring-2 ring-primary/60' : ''} ${dueToday ? 'border-2 border-red-500' : ''}`}
       style={{ boxShadow: 'var(--shadow-sm)', borderLeft: `3px solid ${getTaskColorHex(task.color)}` }}
     >
       {content}

@@ -178,7 +178,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
             type="date"
             value={dueDate}
             onChange={(e) => setDueDate(e.target.value)}
-            className="flex-1 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:dark]"
+            className="flex-1 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark]"
           />
           {dueDate && (
             <button

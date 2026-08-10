@@ -24,12 +24,19 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   const [tasks, setTasks] = useState<BankTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
-  const [addedIds, setAddedIds] = useState<string[]>([]);
+  // id -> how many times it has been added this visit. One-offs (including
+  // goal interval tasks, which arrive as one-offs) cap at 1; everything else
+  // can be added over and over without reopening the dialog.
+  const [addCounts, setAddCounts] = useState<Record<string, number>>({});
+  const totalAdded = useMemo(
+    () => Object.values(addCounts).reduce((sum, n) => sum + n, 0),
+    [addCounts]
+  );
 
   useEffect(() => {
     if (!open || !isLoggedIn) return;
     setLoading(true);
-    setAddedIds([]);
+    setAddCounts({});
     setActiveTags([]);
     fetch('/api/task-bank')
       .then((res) => (res.ok ? res.json() : []))
@@ -66,10 +73,12 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   };
 
   const handlePick = (id: string) => {
-    if (addedIds.includes(id)) return;
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    setAddedIds((prev) => [...prev, id]);
+    // A one-off represents a single unit of work (a goal's 10→20 interval, say)
+    // — adding it twice would be meaningless, so it stays single-add.
+    if (task.isOneOff && (addCounts[id] ?? 0) > 0) return;
+    setAddCounts((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
     onConfirm([task]);
   };
 
@@ -118,7 +127,8 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
                         key={task.id}
                         task={task}
                         selectable
-                        selected={addedIds.includes(task.id)}
+                        selected={(addCounts[task.id] ?? 0) > 0}
+                        addedCount={addCounts[task.id] ?? 0}
                         onToggleSelect={handlePick}
                       />
                     ))}
@@ -129,7 +139,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
 
             <DialogFooter className="pt-2">
               <span className="text-xs text-muted-foreground mr-auto self-center">
-                {addedIds.length > 0 ? `${addedIds.length} added` : 'Tap a task to add it'}
+                {totalAdded > 0 ? `${totalAdded} added` : 'Tap a task to add it'}
               </span>
               <Button
                 onClick={() => onOpenChange(false)}
