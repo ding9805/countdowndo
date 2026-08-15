@@ -1,9 +1,9 @@
-import { TaskBankPage } from '@/components/task-bank/task-bank-page';
+import { SequenceApp } from '@/components/sequence-app';
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-background">
-      <TaskBankPage />
+      <SequenceApp />
     </main>
   );
 }

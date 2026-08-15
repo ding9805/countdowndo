@@ -6,15 +6,15 @@ import { Archive, Timer, Target, Settings } from 'lucide-react';
 
 export function PageToggle() {
   const pathname = usePathname();
-  const isTaskBank = pathname === '/';
-  const isSession = pathname === '/session';
+  const isTaskBank = pathname === '/bank';
+  const isSession = pathname === '/';
   const isGoals = pathname === '/goals';
   const isSettings = pathname === '/settings';
 
   return (
     <div className="inline-flex items-center rounded-full bg-secondary/40 p-1 border border-border/40 gap-0.5">
       <Link
-        href="/session"
+        href="/"
         className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
           isSession ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'
         }`}
@@ -23,7 +23,7 @@ export function PageToggle() {
         <span className="hidden sm:inline">Session</span>
       </Link>
       <Link
-        href="/"
+        href="/bank"
         className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
           isTaskBank ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'
         }`}

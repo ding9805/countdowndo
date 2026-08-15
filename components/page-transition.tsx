@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 
 // The two paired views this animation ties together — Task Bank and Session
 // are meant to feel like adjacent tabs of one flow, not separate pages.
-const PAIRED_ROUTES = ['/', '/session'];
+const PAIRED_ROUTES = ['/bank', '/'];
 
 const variants = {
   enter: (direction: number) => ({ opacity: 0, x: direction > 0 ? 24 : -24 }),
@@ -22,7 +22,7 @@ export function PageTransition({ children }: { children: React.ReactNode }) {
 
   // Session sits to the "right" of Task Bank, so moving to it slides content
   // in from the right; moving back to Task Bank slides in from the left.
-  const direction = pathname === '/session' ? 1 : -1;
+  const direction = pathname === '/' ? 1 : -1;
 
   return (
     <AnimatePresence mode="wait" initial={false} custom={direction}>

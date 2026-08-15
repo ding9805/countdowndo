@@ -1,9 +1,5 @@
-import { SequenceApp } from '@/components/sequence-app';
+import { redirect } from 'next/navigation';
 
 export default function SessionPage() {
-  return (
-    <main className="min-h-screen bg-background">
-      <SequenceApp />
-    </main>
-  );
+  redirect('/');
 }

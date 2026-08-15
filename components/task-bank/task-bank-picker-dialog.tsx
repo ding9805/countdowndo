@@ -114,7 +114,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
                     {tasks.length === 0 ? 'Your task bank is empty.' : 'No tasks match the selected tags.'}
                   </p>
                   {tasks.length === 0 && (
-                    <Link href="/" className="text-sm text-primary hover:underline font-medium">
+                    <Link href="/bank" className="text-sm text-primary hover:underline font-medium">
                       Go create some tasks →
                     </Link>
                   )}
