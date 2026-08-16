@@ -3,6 +3,7 @@ import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask
 import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
 import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
+import { shouldApplyPolledSession } from '@/lib/session-sync';
 import { toast } from 'sonner';
 
 const SYNC_INTERVAL = 3000;
@@ -29,6 +30,11 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
+  // Bumped synchronously by every local write, before its debounce. A poll
+  // response is only trustworthy if this is unchanged across the poll's fetch:
+  // a poll issued just before a local change (e.g. Clear all) comes back
+  // carrying the pre-change task list and would resurrect the cleared tasks.
+  const writeSeqRef = useRef(0);
   const sessionSavedToDbRef = useRef(false);
   // The updatedAt of the ActiveSession row this client last saw. Sent on every
   // save so the server can detect a write from another device/tab that
@@ -155,10 +161,22 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   const pollActiveSession = async () => {
     if (isSavingRef.current || !isLoggedIn) return;
+    const seqAtStart = writeSeqRef.current;
     try {
       const res = await fetch('/api/active-session');
       if (!res.ok) return;
       const data = await res.json();
+      // Local writes win over anything this response could be carrying — see
+      // shouldApplyPolledSession. Without this, a poll racing "Clear all"
+      // reloads the pre-clear task list and the cleared tasks come back.
+      if (!shouldApplyPolledSession({
+        writeSeqAtStart: seqAtStart,
+        writeSeqNow: writeSeqRef.current,
+        savePending: saveTimeoutRef.current !== null,
+        saving: isSavingRef.current,
+        responseUpdatedAt: data?.updatedAt ?? null,
+        lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
+      })) return;
       if (!data) {
         // Only reset to idle if we previously confirmed the session was saved to DB.
         // If save never succeeded (e.g. API error), don't kill the local session.
@@ -203,8 +221,10 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   const saveSessionToDb = useCallback((overrideTasks?: Task[], overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number, overrideMode?: SessionMode, overrideTotalSeconds?: number) => {
     if (!isLoggedIn) return; // Don't save for guests
+    writeSeqRef.current += 1;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = setTimeout(async () => {
+      saveTimeoutRef.current = null;
       isSavingRef.current = true;
       try {
         const currentTasks = overrideTasks ?? tasks;
@@ -263,7 +283,9 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // Immediate save for critical operations (bypasses debounce)
   const saveSessionToDbImmediate = useCallback(async (overrideTasks: Task[], overrideTotalSeconds: number) => {
     if (!isLoggedIn) return;
+    writeSeqRef.current += 1;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = null;
     isSavingRef.current = true;
     try {
       const payload = {
