@@ -80,6 +80,7 @@ export function SequenceApp() {
     handleAddTask,
     handleAddFromBank,
     handleDeleteTask,
+    handleClearAll,
     handleEditTask,
     handleReorder,
   } = useSessionEngine(isLoggedIn, alarmEnabled, chime, sessionVolume);
@@ -178,6 +179,7 @@ export function SequenceApp() {
                 onSessionModeChange={setSessionMode}
                 onAddTask={handleAddTask}
                 onDeleteTask={handleDeleteTask}
+                onClearAll={handleClearAll}
                 onEditTask={handleEditTask}
                 onReorder={handleReorder}
                 onStartSession={handleStartSession}
@@ -203,6 +205,7 @@ export function SequenceApp() {
                 onStop={handleStop}
                 onAddTask={handleAddTask}
                 onDeleteTask={handleDeleteTask}
+                onClearAll={handleClearAll}
                 onEditTask={handleEditTask}
                 onReorder={handleReorder}
                 onOpenTaskBank={() => setBankPickerOpen(true)}

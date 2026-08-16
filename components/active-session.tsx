@@ -32,6 +32,7 @@ interface ActiveSessionProps {
   onStop: () => void;
   onAddTask: (name: string, durationSeconds: number, position?: 'top' | 'bottom', color?: TaskColorId) => void;
   onDeleteTask: (id: string) => void;
+  onClearAll: () => void;
   onEditTask: (id: string, name: string, durationSeconds: number, color?: TaskColorId) => void;
   onReorder: (tasks: Task[]) => void;
   onOpenTaskBank: () => void;
@@ -56,6 +57,7 @@ export function ActiveSession({
   onStop,
   onAddTask,
   onDeleteTask,
+  onClearAll,
   onEditTask,
   onReorder,
   onOpenTaskBank,
@@ -202,9 +204,7 @@ export function ActiveSession({
   };
 
   const handleClearAll = () => {
-    (tasks ?? []).forEach((task: Task) => {
-      onDeleteTask?.(task?.id);
-    });
+    onClearAll?.();
     setShowClearConfirm(false);
   };
 

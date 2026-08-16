@@ -26,6 +26,7 @@ interface TaskInputPanelProps {
   onSessionModeChange: (mode: SessionMode) => void;
   onAddTask: (name: string, durationSeconds: number, position?: 'top' | 'bottom', color?: TaskColorId) => void;
   onDeleteTask: (id: string) => void;
+  onClearAll: () => void;
   onEditTask: (id: string, name: string, durationSeconds: number, color?: TaskColorId) => void;
   onReorder: (tasks: Task[]) => void;
   onStartSession: () => void;
@@ -44,6 +45,7 @@ export function TaskInputPanel({
   onSessionModeChange,
   onAddTask,
   onDeleteTask,
+  onClearAll,
   onEditTask,
   onReorder,
   onStartSession,
@@ -174,9 +176,7 @@ export function TaskInputPanel({
   };
 
   const handleClearAll = () => {
-    (tasks ?? []).forEach((task: Task) => {
-      onDeleteTask?.(task?.id);
-    });
+    onClearAll?.();
     setShowClearConfirm(false);
   };
 

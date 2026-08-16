@@ -868,6 +868,43 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     saveSessionToDb(updated);
   };
 
+  // Clears every task from the list at once. Unlike looping handleDeleteTask,
+  // this is a single state update — calling onDeleteTask repeatedly would
+  // re-read stale `tasks` from the closure and only remove one task.
+  const handleClearAll = () => {
+    const isActive = sessionState !== 'idle';
+    const currentTasks = (tasks ?? []).filter((t: Task) => t?.id);
+
+    if (isActive) {
+      setTasks([]);
+      saveSessionToDb([]);
+
+      // Log every task that wasn't already marked done as completed.
+      const notDone = currentTasks.filter((t: Task) => !t.isDone);
+      if (notDone.length > 0) {
+        logCompletedTasks(notDone.map((t: Task) => ({ ...t, isDone: true, doneAt: Date.now() })));
+      }
+
+      // Queue bank task ids for the session-end sweep and soft-delete one-offs
+      // immediately, mirroring handleDeleteTask. Goals advance only for tasks
+      // that weren't already done (done ones advanced in handleMarkDone).
+      currentTasks.forEach((t: Task) => {
+        if (!t.bankTaskId) return;
+        pendingOneOffBankTaskIdsRef.current.add(t.bankTaskId);
+        setOneOffChecked([t.bankTaskId], true);
+        if (!t.isDone) {
+          stepGoalForBankTask(t.bankTaskId, 'advance');
+        }
+      });
+      return;
+    }
+
+    // Idle: clear the list and reset the total.
+    setTasks([]);
+    setSessionTotalSeconds(0);
+    saveSessionToDb([]);
+  };
+
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
 
@@ -982,6 +1019,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     handleAddTask,
     handleAddFromBank,
     handleDeleteTask,
+    handleClearAll,
     handleEditTask,
     handleReorder,
   };
