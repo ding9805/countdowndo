@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { BankTask, Goal, PickedBankTask } from '@/lib/types';
@@ -26,10 +26,14 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
-  // id -> how many times it has been added this visit. One-offs (including
-  // goal interval tasks, which arrive as one-offs) cap at 1; everything else
-  // can be added over and over without reopening the dialog.
+  // id -> how many times it has been added this visit. Plain one-offs cap at
+  // 1; goal cursor tasks cap at the goal's remaining intervals (each add is
+  // the next chunk); everything else can be added over and over.
   const [addCounts, setAddCounts] = useState<Record<string, number>>({});
+  // Mirror of addCounts read synchronously by handlePick. Two clicks in the
+  // same React batch (a double-click) would otherwise both see the pre-batch
+  // state and build the same goal chunk name twice.
+  const addCountsRef = useRef<Record<string, number>>({});
   const totalAdded = useMemo(
     () => Object.values(addCounts).reduce((sum, n) => sum + n, 0),
     [addCounts]
@@ -53,6 +57,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   useEffect(() => {
     if (!open || !isLoggedIn) return;
     setLoading(true);
+    addCountsRef.current = {};
     setAddCounts({});
     setActiveTags([]);
     loadBankData().finally(() => setLoading(false));
@@ -95,22 +100,23 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   const handlePick = (id: string) => {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    // A one-off represents a single unit of work — adding it twice would be
-    // meaningless, so it stays single-add.
-    if (task.isOneOff && (addCounts[id] ?? 0) > 0) return;
+    const added = addCountsRef.current[id] ?? 0;
+    const goal = goalByCursorId[id];
+    // A one-off represents a single unit of work, but a goal's cursor task is
+    // stored as a one-off and still has further interval chunks to hand out.
+    if (task.isOneOff && !goal && added > 0) return;
 
     // Repeated adds of a goal's cursor task each get the next interval chunk
     // ("…: 10–20", then "…: 20–30", …) instead of duplicating the same name.
     let name: string | undefined;
-    const goal = goalByCursorId[id];
     if (goal) {
-      const offset = addCounts[id] ?? 0;
       // All remaining intervals are already queued — nothing left to add.
-      if (offset >= remainingIntervals(goal)) return;
-      name = cursorTaskNameOffset(goal, offset);
+      if (added >= remainingIntervals(goal)) return;
+      name = cursorTaskNameOffset(goal, added);
     }
 
-    setAddCounts((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
+    addCountsRef.current = { ...addCountsRef.current, [id]: added + 1 };
+    setAddCounts(addCountsRef.current);
     onConfirm([{ bankTask: task, name }]);
   };
 
