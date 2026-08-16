@@ -23,18 +23,28 @@ export function formatGoalValue(value: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
-// The next chunk the cursor task represents: from currentValue to
-// min(currentValue + intervalSize, targetValue). The clamp handles the
-// partial last chunk (e.g. 85 pages / 8 intervals → final chunk 80–85).
-export function nextChunk(goal: GoalLike): { from: number; to: number } {
-  const from = goal.currentValue;
-  const to = Math.min(from + intervalSize(goal), goal.targetValue);
-  return { from, to };
+// The task name for the chunk `offset` intervals ahead of the goal's current
+// cursor — offset 0 is the live cursor task, offset 1 the next interval, etc.
+// Used to label repeated adds of a goal's cursor task into a session so each
+// copy is the next chunk (10→20, then 20→30, …) instead of a duplicate name.
+export function cursorTaskNameOffset(goal: GoalLike, offset: number): string {
+  const size = intervalSize(goal);
+  const from = goal.currentValue + offset * size;
+  const to = Math.min(from + size, goal.targetValue);
+  return `${goal.name}: ${formatGoalValue(from)}–${formatGoalValue(to)} ${goal.unit}`;
 }
 
 export function cursorTaskName(goal: GoalLike): string {
-  const { from, to } = nextChunk(goal);
-  return `${goal.name}: ${formatGoalValue(from)}–${formatGoalValue(to)} ${goal.unit}`;
+  return cursorTaskNameOffset(goal, 0);
+}
+
+// How many more interval tasks (including a partial final chunk) a goal can
+// produce from its current cursor before reaching the target.
+export function remainingIntervals(
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'currentValue' | 'intervals'>
+): number {
+  if (isGoalComplete(goal)) return 0;
+  return Math.max(0, Math.ceil((goal.targetValue - goal.currentValue) / intervalSize(goal) - GOAL_EPSILON));
 }
 
 export function isGoalComplete(goal: Pick<GoalLike, 'currentValue' | 'targetValue'>): boolean {

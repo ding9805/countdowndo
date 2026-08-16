@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Task, BankTask, SessionState, SessionMode, TaskOrder, TaskColorId } from '@/lib/types';
+import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask } from '@/lib/types';
 import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
 import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
@@ -768,8 +768,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // pre-batch `sessionTotalSeconds` closure (state updates aren't visible again
   // until the next render), so every task after the first got the wrong
   // cumulative time. Computing the batch in one pass sidesteps that entirely.
-  const handleAddFromBank = (bankTasks: BankTask[]) => {
-    if (bankTasks.length === 0) return;
+  const handleAddFromBank = (picked: PickedBankTask[]) => {
+    if (picked.length === 0) return;
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
 
     setTasks((prev: Task[]) => {
@@ -781,11 +781,12 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           effectiveTotal = list[list.length - 1]?.cumulativeSeconds ?? 0;
         }
         let running = effectiveTotal;
-        const newTasks: Task[] = bankTasks.map((bt) => {
+        const newTasks: Task[] = picked.map((p) => {
+          const bt = p.bankTask;
           running += bt.durationSeconds;
           return {
             id: generateId(),
-            name: bt.name,
+            name: p.name ?? bt.name,
             durationSeconds: bt.durationSeconds,
             cumulativeSeconds: running,
             isDone: false,
@@ -803,18 +804,21 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       }
 
       // Idle: full recalculation
-      const newTasks: Task[] = bankTasks.map((bt) => ({
-        id: generateId(),
-        name: bt.name,
-        durationSeconds: bt.durationSeconds,
-        cumulativeSeconds: 0,
-        isDone: false,
-        doneAt: null,
-        bonusSeconds: 0,
-        color: bt.color,
-        bankTaskId: bt.id,
-        isOneOffBankTask: bt.isOneOff,
-      }));
+      const newTasks: Task[] = picked.map((p) => {
+        const bt = p.bankTask;
+        return {
+          id: generateId(),
+          name: p.name ?? bt.name,
+          durationSeconds: bt.durationSeconds,
+          cumulativeSeconds: 0,
+          isDone: false,
+          doneAt: null,
+          bonusSeconds: 0,
+          color: bt.color,
+          bankTaskId: bt.id,
+          isOneOffBankTask: bt.isOneOff,
+        };
+      });
       const updated = recalculateCumulativeTimes([...list, ...newTasks]);
       // Persist regardless of session state — see the comment in handleAddTask.
       const newTotal = updated.length > 0 ? updated[updated.length - 1].cumulativeSeconds : 0;
@@ -823,7 +827,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       return updated;
     });
 
-    toast.success(`Added ${bankTasks.length} task${bankTasks.length !== 1 ? 's' : ''} from bank`);
+    toast.success(`Added ${picked.length} task${picked.length !== 1 ? 's' : ''} from bank`);
   };
 
   const handleDeleteTask = (taskId: string) => {

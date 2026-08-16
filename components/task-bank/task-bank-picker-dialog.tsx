@@ -1,20 +1,21 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { BankTask } from '@/lib/types';
+import { BankTask, Goal, PickedBankTask } from '@/lib/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TaskBankCard } from './task-bank-card';
 import { TagFilterBar } from './tag-filter-bar';
 import { Archive, LogIn } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
+import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
 
 interface TaskBankPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (tasks: BankTask[]) => void;
+  onConfirm: (picked: PickedBankTask[]) => void;
 }
 
 export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBankPickerDialogProps) {
@@ -22,6 +23,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
 
   const [tasks, setTasks] = useState<BankTask[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
   // id -> how many times it has been added this visit. One-offs (including
@@ -33,29 +35,37 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
     [addCounts]
   );
 
+  const loadBankData = useCallback(async () => {
+    try {
+      const [tasksRes, goalsRes] = await Promise.all([
+        fetch('/api/task-bank'),
+        fetch('/api/goals'),
+      ]);
+      setTasks(tasksRes.ok ? await tasksRes.json() : []);
+      setGoals(goalsRes.ok ? await goalsRes.json() : []);
+    } catch (e) {
+      console.error('Failed to load task bank/goals:', e);
+      setTasks([]);
+      setGoals([]);
+    }
+  }, []);
+
   useEffect(() => {
     if (!open || !isLoggedIn) return;
     setLoading(true);
     setAddCounts({});
     setActiveTags([]);
-    fetch('/api/task-bank')
-      .then((res) => (res.ok ? res.json() : []))
-      .then(setTasks)
-      .catch(() => setTasks([]))
-      .finally(() => setLoading(false));
-  }, [open, isLoggedIn]);
+    loadBankData().finally(() => setLoading(false));
+  }, [open, isLoggedIn, loadBankData]);
 
   useEffect(() => {
     const handler = () => {
       if (!open || !isLoggedIn) return;
-      fetch('/api/task-bank')
-        .then((res) => (res.ok ? res.json() : []))
-        .then(setTasks)
-        .catch(() => setTasks([]));
+      loadBankData();
     };
     window.addEventListener('bank-tasks-updated', handler);
     return () => window.removeEventListener('bank-tasks-updated', handler);
-  }, [open, isLoggedIn]);
+  }, [open, isLoggedIn, loadBankData]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -68,6 +78,16 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
     return tasks.filter((t) => t.tags.some((tag) => activeTags.includes(tag)));
   }, [tasks, activeTags]);
 
+  // bankTaskId -> the goal whose cursor task it is, used to increment repeated
+  // adds of that task into the session (each copy is the next interval chunk).
+  const goalByCursorId = useMemo(() => {
+    const map: Record<string, Goal> = {};
+    goals.forEach((g) => {
+      if (g.bankTaskId) map[g.bankTaskId] = g;
+    });
+    return map;
+  }, [goals]);
+
   const toggleTag = (tag: string) => {
     setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   };
@@ -75,11 +95,23 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
   const handlePick = (id: string) => {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    // A one-off represents a single unit of work (a goal's 10→20 interval, say)
-    // — adding it twice would be meaningless, so it stays single-add.
+    // A one-off represents a single unit of work — adding it twice would be
+    // meaningless, so it stays single-add.
     if (task.isOneOff && (addCounts[id] ?? 0) > 0) return;
+
+    // Repeated adds of a goal's cursor task each get the next interval chunk
+    // ("…: 10–20", then "…: 20–30", …) instead of duplicating the same name.
+    let name: string | undefined;
+    const goal = goalByCursorId[id];
+    if (goal) {
+      const offset = addCounts[id] ?? 0;
+      // All remaining intervals are already queued — nothing left to add.
+      if (offset >= remainingIntervals(goal)) return;
+      name = cursorTaskNameOffset(goal, offset);
+    }
+
     setAddCounts((prev) => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }));
-    onConfirm([task]);
+    onConfirm([{ bankTask: task, name }]);
   };
 
   return (

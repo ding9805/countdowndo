@@ -66,6 +66,14 @@ export interface Goal {
   updatedAt: string;
 }
 
+// A task picked from the bank to drop into a session. `name` overrides
+// bankTask.name when non-nil — repeated adds of a goal's cursor task use it to
+// label each copy with the next interval chunk (10→20, then 20→30, …).
+export interface PickedBankTask {
+  bankTask: BankTask;
+  name?: string;
+}
+
 export interface BankTaskTemplate {
   id: string;
   name: string;
