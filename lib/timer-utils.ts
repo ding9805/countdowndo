@@ -62,3 +62,29 @@ export function formatDuration(totalSeconds: number): string {
   if (minutes > 0) return `${minutes}m`;
   return `${seconds}s`;
 }
+
+/**
+ * The task list a stopped session leaves staged for the next one: the
+ * unfinished tasks only, with per-run state (done flags, bonus time, the
+ * completion-log id) cleared and cumulative times re-anchored at zero.
+ *
+ * Pulled out of handleStop so the staged list can be persisted as well as
+ * shown — the DB row is deleted at session end, so anything left in local
+ * state alone is lost on the next refresh.
+ */
+export function resetTasksForNextSession(tasks: Task[]): Task[] {
+  return recalculateCumulativeTimes(
+    (tasks ?? [])
+      .filter((task: Task) => !task?.isDone)
+      .map(
+        (task: Task) =>
+          ({ ...(task ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null }) as Task
+      )
+  );
+}
+
+/** The session envelope implied by a list: the last task's cumulative time. */
+export function sessionTotalFor(tasks: Task[]): number {
+  const list = tasks ?? [];
+  return list.length > 0 ? (list[list.length - 1]?.cumulativeSeconds ?? 0) : 0;
+}

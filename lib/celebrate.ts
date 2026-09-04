@@ -5,12 +5,13 @@ import confetti from 'canvas-confetti';
  */
 export const playHooraySound = () => {
   try {
-    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const now = audioContext.currentTime;
-    const duration = 0.8;
-
     // Create multiple oscillators for a fun, celebratory sound
     const frequencies = [523.25, 659.25, 783.99]; // C, E, G notes (major chord)
+    const audioContext: AudioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = audioContext.currentTime;
+    const duration = 0.8;
+    // Longest scheduled note: the last oscillator starts at index * 0.1.
+    const totalDuration = duration + (frequencies.length - 1) * 0.1;
 
     frequencies.forEach((freq, index) => {
       const oscillator = audioContext.createOscillator();
@@ -30,6 +31,12 @@ export const playHooraySound = () => {
       oscillator.start(startTime);
       oscillator.stop(startTime + duration);
     });
+
+    // Release the short-lived context once the last note has finished. Without
+    // this every celebration leaks an AudioContext, and browsers cap how many
+    // a page may hold — past the cap `new AudioContext()` throws and all sound
+    // stops working until reload. Mirrors playTimerSound in lib/use-timer-sound.
+    window.setTimeout(() => { void audioContext.close(); }, (totalDuration + 0.2) * 1000);
   } catch (error) {
     console.error('Failed to play celebration sound:', error);
   }

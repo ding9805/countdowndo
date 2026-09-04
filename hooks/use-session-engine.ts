@@ -1,9 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask } from '@/lib/types';
-import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
+import {
+  generateId,
+  recalculateCumulativeTimes,
+  recalculateCumulativeTimesWithEnvelope,
+  resetTasksForNextSession,
+  sessionTotalFor,
+} from '@/lib/timer-utils';
 import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
-import { shouldApplyPolledSession } from '@/lib/session-sync';
+import { restoredElapsedSeconds, settlePendingWrites, shouldApplyPolledSession } from '@/lib/session-sync';
 import { toast } from 'sonner';
 
 const SYNC_INTERVAL = 3000;
@@ -27,6 +33,9 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const soundPlayedRef = useRef<Set<string>>(new Set());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // The save request currently in flight, so ending the session can wait it
+  // out instead of racing it — see endSessionInDb.
+  const savePromiseRef = useRef<Promise<unknown> | null>(null);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
@@ -115,6 +124,11 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
     setSessionTotalSeconds(total);
     soundPlayedRef.current = new Set((data.soundPlayed as string[]) ?? []);
+
+    // The tick only runs while 'running', so the elapsed counter has to be
+    // seeded here too — otherwise a paused row adopted from the server reads
+    // 0 elapsed until the user resumes. See restoredElapsedSeconds.
+    setElapsedSeconds(restoredElapsedSeconds(data));
 
     if (data.sessionState === 'running') {
       setSessionState('running');
@@ -212,6 +226,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           setPausedElapsed(data.pausedElapsed ?? 0);
         } else if (data.sessionState === 'paused') {
           setPausedElapsed(data.pausedElapsed ?? 0);
+          setElapsedSeconds(restoredElapsedSeconds(data));
         }
       }
     } catch (e: any) {
@@ -223,25 +238,85 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     if (!isLoggedIn) return; // Don't save for guests
     writeSeqRef.current += 1;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
+    saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null;
       isSavingRef.current = true;
-      try {
-        const currentTasks = overrideTasks ?? tasks;
-        const currentState = overrideState ?? sessionState;
-        const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
-        const currentPausedElapsed = overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed;
-        const currentMode = overrideMode ?? sessionMode;
-        const currentTotalSeconds = overrideTotalSeconds !== undefined ? overrideTotalSeconds : sessionTotalSeconds;
+      // Held so endSessionInDb can wait this out rather than deleting the row
+      // underneath it and having this write recreate it.
+      savePromiseRef.current = (async () => {
+        try {
+          const currentTasks = overrideTasks ?? tasks;
+          const currentState = overrideState ?? sessionState;
+          const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
+          const currentPausedElapsed = overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed;
+          const currentMode = overrideMode ?? sessionMode;
+          const currentTotalSeconds = overrideTotalSeconds !== undefined ? overrideTotalSeconds : sessionTotalSeconds;
 
+          const payload = {
+            tasks: currentTasks,
+            sessionState: currentState,
+            sessionStartMs: currentStartMs ?? Date.now(),
+            pausedElapsed: currentPausedElapsed,
+            soundPlayed: Array.from(soundPlayedRef.current),
+            sessionMode: currentMode,
+            sessionTotalSeconds: currentTotalSeconds,
+            lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
+          };
+
+          lastSyncRef.current = JSON.stringify({
+            tasks: payload.tasks,
+            sessionState: payload.sessionState,
+            sessionStartMs: payload.sessionStartMs,
+            pausedElapsed: payload.pausedElapsed,
+            sessionMode: payload.sessionMode,
+            sessionTotalSeconds: payload.sessionTotalSeconds,
+          });
+
+          const res = await fetch('/api/active-session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (res.status === 409) {
+            // Another device/tab saved since we last synced — adopt its state
+            // instead of retrying this (now-stale) write over it.
+            const conflictBody = await res.json().catch(() => null);
+            if (conflictBody?.latest) {
+              applyRemoteSessionData(conflictBody.latest);
+              toast.info('Synced with a more recent change from another device');
+            }
+          } else if (res.ok) {
+            const saved = await res.json().catch(() => null);
+            if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
+            sessionSavedToDbRef.current = true;
+          }
+        } catch (e: any) {
+          console.error('Failed to save session:', e);
+        } finally {
+          isSavingRef.current = false;
+        }
+      })();
+    }, SAVE_DEBOUNCE);
+  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, applyRemoteSessionData]);
+
+  // Immediate save for critical operations (bypasses debounce)
+  const saveSessionToDbImmediate = useCallback((overrideTasks: Task[], overrideTotalSeconds: number): Promise<void> => {
+    if (!isLoggedIn) return Promise.resolve();
+    writeSeqRef.current += 1;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = null;
+    isSavingRef.current = true;
+    // Tracked for the same reason as the debounced save above.
+    const run = (async () => {
+      try {
         const payload = {
-          tasks: currentTasks,
-          sessionState: currentState,
-          sessionStartMs: currentStartMs ?? Date.now(),
-          pausedElapsed: currentPausedElapsed,
+          tasks: overrideTasks,
+          sessionState: sessionState,
+          sessionStartMs: sessionStartTime ?? Date.now(),
+          pausedElapsed: pausedElapsed,
           soundPlayed: Array.from(soundPlayedRef.current),
-          sessionMode: currentMode,
-          sessionTotalSeconds: currentTotalSeconds,
+          sessionMode: sessionMode,
+          sessionTotalSeconds: overrideTotalSeconds,
           lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
         };
 
@@ -260,8 +335,6 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           body: JSON.stringify(payload),
         });
         if (res.status === 409) {
-          // Another device/tab saved since we last synced — adopt its state
-          // instead of retrying this (now-stale) write over it.
           const conflictBody = await res.json().catch(() => null);
           if (conflictBody?.latest) {
             applyRemoteSessionData(conflictBody.latest);
@@ -273,32 +346,63 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           sessionSavedToDbRef.current = true;
         }
       } catch (e: any) {
-        console.error('Failed to save session:', e);
+        console.error('Failed to save session immediately:', e);
       } finally {
         isSavingRef.current = false;
       }
-    }, SAVE_DEBOUNCE);
-  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, applyRemoteSessionData]);
+    })();
+    savePromiseRef.current = run;
+    return run;
+  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, applyRemoteSessionData]);
 
-  // Immediate save for critical operations (bypasses debounce)
-  const saveSessionToDbImmediate = useCallback(async (overrideTasks: Task[], overrideTotalSeconds: number) => {
+  // Ends the session on the server. Two things have to happen in order:
+  //
+  //  1. Settle the local writes still in flight. saveSessionToDb is debounced
+  //     by a second, so a change made just before Stop (mark done, edit,
+  //     delete) would otherwise POST *after* this and recreate the row as
+  //     'running' — the stopped session comes back on the next load.
+  //  2. Persist what the stop leaves behind. The unfinished tasks stay staged
+  //     in the planning view, and a staged list is expected to survive a
+  //     refresh (same as one built before a session ever started), so the row
+  //     is rewritten as 'idle' rather than deleted whenever any remain.
+  //
+  // lastKnownUpdatedAt is deliberately omitted: stopping is an explicit user
+  // action on this device and always wins, which is also what the plain
+  // DELETE this replaced did.
+  const endSessionInDb = useCallback(async (remainingTasks: Task[], remainingTotalSeconds: number) => {
     if (!isLoggedIn) return;
     writeSeqRef.current += 1;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = null;
+    await settlePendingWrites({
+      cancelQueuedSave: () => {
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      },
+      inFlightSave: savePromiseRef.current,
+    });
+    savePromiseRef.current = null;
+
     isSavingRef.current = true;
     try {
+      if (remainingTasks.length === 0) {
+        await fetch('/api/active-session', { method: 'DELETE' });
+        lastKnownUpdatedAtRef.current = null;
+        lastSyncRef.current = '';
+        sessionSavedToDbRef.current = false;
+        return;
+      }
+
       const payload = {
-        tasks: overrideTasks,
-        sessionState: sessionState,
-        sessionStartMs: sessionStartTime ?? Date.now(),
-        pausedElapsed: pausedElapsed,
-        soundPlayed: Array.from(soundPlayedRef.current),
-        sessionMode: sessionMode,
-        sessionTotalSeconds: overrideTotalSeconds,
-        lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
+        tasks: remainingTasks,
+        sessionState: 'idle' as SessionState,
+        sessionStartMs: Date.now(),
+        pausedElapsed: 0,
+        soundPlayed: [] as string[],
+        sessionMode: 'continuous' as SessionMode,
+        sessionTotalSeconds: remainingTotalSeconds,
       };
 
+      // Same six-key shape the poll builds its comparison string from, so a
+      // later poll doesn't read this row as a change from another device.
       lastSyncRef.current = JSON.stringify({
         tasks: payload.tasks,
         sessionState: payload.sessionState,
@@ -313,33 +417,19 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      if (res.status === 409) {
-        const conflictBody = await res.json().catch(() => null);
-        if (conflictBody?.latest) {
-          applyRemoteSessionData(conflictBody.latest);
-          toast.info('Synced with a more recent change from another device');
-        }
-      } else if (res.ok) {
+      if (res.ok) {
         const saved = await res.json().catch(() => null);
-        if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
-        sessionSavedToDbRef.current = true;
+        lastKnownUpdatedAtRef.current = saved?.updatedAt ?? null;
       }
+      // The session is over either way, so nothing here should make a later
+      // poll treat a missing row as a session to tear down.
+      sessionSavedToDbRef.current = false;
     } catch (e: any) {
-      console.error('Failed to save session immediately:', e);
+      console.error('Failed to end session:', e);
     } finally {
       isSavingRef.current = false;
     }
-  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, applyRemoteSessionData]);
-
-  const deleteSessionFromDb = async () => {
-    if (!isLoggedIn) return;
-    try {
-      await fetch('/api/active-session', { method: 'DELETE' });
-      lastKnownUpdatedAtRef.current = null;
-    } catch (e: any) {
-      console.error('Failed to delete session:', e);
-    }
-  };
+  }, [isLoggedIn]);
 
   // Timer tick
   useEffect(() => {
@@ -630,20 +720,21 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       new Set([...doneBankTaskIds, ...pendingOneOffBankTaskIdsRef.current])
     );
 
+    // On stop, only the unfinished tasks carry over — staged for the next
+    // session, with their per-run state cleared.
+    const remaining = resetTasksForNextSession(tasks);
+    const remainingTotal = sessionTotalFor(remaining);
+
     setSessionState('idle');
     setSessionStartTime(null);
     setPausedElapsed(0);
     setElapsedSeconds(0);
-    setSessionTotalSeconds(0);
+    setSessionTotalSeconds(remainingTotal);
     soundPlayedRef.current = new Set();
-    // On stop, filter out done tasks so only unfinished ones remain
-    setTasks((prev: Task[]) => {
-      const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
-      return recalculateCumulativeTimes(
-        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
-      );
-    });
-    deleteSessionFromDb();
+    setTasks(remaining);
+    // Persists that staged list as well as clearing the finished session, so a
+    // refresh after Stop doesn't lose the tasks the user chose to keep.
+    endSessionInDb(remaining, remainingTotal);
     completeOneOffBankTasks(bankTaskIdsToSweep);
     pendingOneOffBankTaskIdsRef.current.clear();
   };

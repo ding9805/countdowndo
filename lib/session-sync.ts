@@ -31,3 +31,50 @@ export function shouldApplyPolledSession(input: PollGuardInput): boolean {
   }
   return true;
 }
+
+// The elapsed-seconds reading a client should adopt along with a session row
+// (initial load, cross-device poll, 409 reconciliation). The tick only runs
+// while the session is 'running', so a client that adopts a paused row without
+// this reads 0 elapsed — every task at its full remaining time and the
+// timeline's "now" marker at the very top — until the user resumes.
+export interface RestoredSessionTiming {
+  sessionState?: string | null;
+  // Date.now() when the session was started or last resumed.
+  sessionStartMs?: number | null;
+  // Seconds elapsed before the last pause.
+  pausedElapsed?: number | null;
+}
+
+export function restoredElapsedSeconds(
+  row: RestoredSessionTiming,
+  now: number = Date.now()
+): number {
+  const paused = Number.isFinite(row?.pausedElapsed as number) ? (row.pausedElapsed as number) : 0;
+
+  if (row?.sessionState === 'paused') return Math.max(0, paused);
+
+  if (row?.sessionState === 'running') {
+    // Same formula as the timer tick, so adopting a running row lands on the
+    // reading the next tick would have produced 200ms later anyway.
+    const startMs = Number.isFinite(row?.sessionStartMs as number) ? (row.sessionStartMs as number) : now;
+    return Math.max(0, Math.floor((now - startMs) / 1000) + paused);
+  }
+
+  return 0;
+}
+
+// Local writes that must not outlive the session they belong to. Ending a
+// session deletes or rewrites its row, so a save queued (or in flight) just
+// before that would land afterwards and recreate the row as 'running' — the
+// stopped session comes back on the next load. Settle both before writing.
+export interface PendingWrites {
+  cancelQueuedSave: () => void;
+  inFlightSave: Promise<unknown> | null;
+}
+
+export async function settlePendingWrites(writes: PendingWrites): Promise<void> {
+  writes.cancelQueuedSave();
+  // A failed save is still settled — we only care that it is no longer racing
+  // the write that follows.
+  if (writes.inFlightSave) await writes.inFlightSave.catch(() => {});
+}
