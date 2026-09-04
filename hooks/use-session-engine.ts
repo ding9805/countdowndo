@@ -10,6 +10,14 @@ import {
 import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { restoredElapsedSeconds, settlePendingWrites, shouldApplyPolledSession } from '@/lib/session-sync';
+import {
+  MAX_COMPLETION_LOG_BATCH,
+  PendingCompletionLogs,
+  batchCompletionLogTasks,
+  beginCompletionLogWrite,
+  cancelCompletionLogWrite,
+  settleCompletionLogWrite,
+} from '@/lib/completion-log-sync';
 import { toast } from 'sonner';
 
 const SYNC_INTERVAL = 3000;
@@ -54,6 +62,11 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // task can be removed mid-session (logged as done but filtered out of the
   // list), so it wouldn't be caught by a simple "isDone" scan at stop time.
   const pendingOneOffBankTaskIdsRef = useRef<Set<string>>(new Set());
+  // Completion-log writes that have been sent but not come back yet, keyed by
+  // task id. Un-marking a task while its write is outstanding has no log id to
+  // retract, so it flags the write to retract itself on arrival instead — see
+  // handleMarkDone.
+  const pendingCompletionLogsRef = useRef<PendingCompletionLogs>(new Map());
 
   // Load taskOrder from localStorage on mount + set initial planning start time
   useEffect(() => {
@@ -538,21 +551,40 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const idMap: Record<string, string> = {};
 
     if (isLoggedIn) {
-      try {
-        const res = await fetch('/api/completion-log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasks: payload }),
-        });
-        if (res.ok) {
+      // One request may only carry MAX_COMPLETION_LOG_BATCH entries, but a
+      // session holds up to MAX_TASKS_PER_SESSION — "Clear all" on a long list
+      // used to send them all at once, get a 400, and drop every completion
+      // with nothing said. Send them in batches the server will accept.
+      const batches = batchCompletionLogTasks(payload, MAX_COMPLETION_LOG_BATCH);
+      let anyFailed = false;
+      let offset = 0;
+      for (const batch of batches) {
+        try {
+          const res = await fetch('/api/completion-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tasks: batch }),
+          });
+          if (!res.ok) throw new Error(`Completion log write failed with ${res.status}`);
           const data = await res.json();
           (data.logs ?? []).forEach((log: any, i: number) => {
-            const taskId = completedTasks[i]?.id;
+            // Indices are batch-local; completedTasks is the whole list.
+            const taskId = completedTasks[offset + i]?.id;
             if (taskId && log?.id) idMap[taskId] = log.id;
           });
+        } catch (e) {
+          anyFailed = true;
+          console.error('Failed to log completions:', e);
         }
-      } catch (e) {
-        console.error('Failed to log completions:', e);
+        // Advanced even on failure so a later batch still lines up with its tasks.
+        offset += batch.length;
+      }
+      if (anyFailed) {
+        // Silence here means finished work just isn't in the history, with
+        // nothing to explain where it went.
+        toast.error("Couldn't add every finished task to your history", {
+          id: 'completion-log-error',
+        });
       }
     } else {
       // Guest: save to localStorage
@@ -756,6 +788,11 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       );
       setTasks(updated);
       saveSessionToDb(updated);
+      // The write that created this task's log row may still be in flight, in
+      // which case there is no id to retract yet — flag it so it retracts
+      // itself on arrival. Without this the un-marked task keeps a history
+      // entry, and gets a second one if it is marked done again.
+      cancelCompletionLogWrite(pendingCompletionLogsRef.current, taskId);
       if (task.completionLogId) {
         retractCompletionLog(task.completionLogId);
       }
@@ -783,9 +820,20 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       stepGoalForBankTask(task.bankTaskId, 'advance');
     }
 
+    const logWrite = beginCompletionLogWrite(pendingCompletionLogsRef.current, taskId);
+
     logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
       const logId = idMap[taskId];
-      if (!logId) return;
+      // Settled against `logWrite` rather than whatever is pending now, so a
+      // write superseded by a later done/undone cycle still cleans up its own
+      // row instead of the newer one's.
+      const outcome = settleCompletionLogWrite(pendingCompletionLogsRef.current, taskId, logWrite, logId);
+      if (outcome === 'retract') {
+        // Un-marked while this was in flight: drop the row it just created.
+        retractCompletionLog(logId as string);
+        return;
+      }
+      if (outcome !== 'attach') return;
       // Use the functional form here: this resolves after an await, so the
       // task list may have changed since `provisional` was captured (e.g. the
       // user added/reordered tasks). Patching against the live `prev` avoids
