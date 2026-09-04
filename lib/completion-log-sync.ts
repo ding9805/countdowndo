@@ -75,3 +75,37 @@ export function settleCompletionLogWrite(
   if (!logId) return 'discard';
   return write.cancelled ? 'retract' : 'attach';
 }
+
+// Guests keep their history in localStorage, so the client has to mint the row
+// ids the server would otherwise supply. The old scheme was
+// `local-${Date.now()}-${indexWithinTheCall}`, which repeats as soon as two
+// separate calls land in the same millisecond — the index restarts at 0 each
+// time — and two tabs sharing this localStorage can collide the same way.
+// Duplicate ids matter because removing an entry matches by id: retracting one
+// completion would take an unrelated one with it.
+//
+// A monotonic counter keeps ids distinct within a page session, the timestamp
+// keeps them distinct across reloads, and the random suffix covers two tabs
+// writing in the same millisecond.
+let localCompletionLogSequence = 0;
+
+export function nextLocalCompletionLogId(now: number = Date.now()): string {
+  localCompletionLogSequence += 1;
+  const suffix = Math.random().toString(36).slice(2, 8);
+  return `local-${now}-${localCompletionLogSequence}-${suffix}`;
+}
+
+/**
+ * Removes one stored completion by id, leaving any duplicate behind.
+ *
+ * Ids minted before the fix above can already repeat in a guest's stored
+ * history, and a plain filter drops every match — so retracting one completion
+ * silently deletes the other. Taking a single entry keeps the damage from a
+ * legacy duplicate to the row the user actually acted on.
+ */
+export function removeLocalCompletionLogEntry<T extends { id?: string }>(entries: T[], id: string): T[] {
+  const list = entries ?? [];
+  const index = list.findIndex((entry) => entry?.id === id);
+  if (index < 0) return list;
+  return [...list.slice(0, index), ...list.slice(index + 1)];
+}

@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { History, Clock, CheckCircle2, X, ChevronDown, ChevronUp, ChevronsUpDown, Minimize2 } from 'lucide-react';
 import { formatDuration } from '@/lib/timer-utils';
 import { TASK_COLORS, getTaskColorHex } from '@/lib/types';
+import { removeLocalCompletionLogEntry } from '@/lib/completion-log-sync';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface CompletionEntry {
@@ -161,7 +162,9 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
       }
     } else {
       try {
-        const updated = entries.filter(e => e.id !== id);
+        // One entry, not every match — a legacy duplicate id must not take
+        // an unrelated completion down with it.
+        const updated = removeLocalCompletionLogEntry(entries, id);
         setEntries(updated);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       } catch {}

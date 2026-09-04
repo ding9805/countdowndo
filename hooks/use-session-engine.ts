@@ -16,6 +16,8 @@ import {
   batchCompletionLogTasks,
   beginCompletionLogWrite,
   cancelCompletionLogWrite,
+  nextLocalCompletionLogId,
+  removeLocalCompletionLogEntry,
   settleCompletionLogWrite,
 } from '@/lib/completion-log-sync';
 import { toast } from 'sonner';
@@ -592,7 +594,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         const key = 'countdowndo-completion-history';
         const existing: any[] = JSON.parse(localStorage.getItem(key) || '[]');
         const newEntries = payload.map((t, i) => {
-          const id = `local-${Date.now()}-${i}`;
+          const id = nextLocalCompletionLogId();
           const taskId = completedTasks[i]?.id;
           if (taskId) idMap[taskId] = id;
           return {
@@ -731,7 +733,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       try {
         const key = 'countdowndo-completion-history';
         const existing: any[] = JSON.parse(localStorage.getItem(key) || '[]');
-        const filtered = existing.filter((e) => e.id !== completionLogId);
+        // Removes one entry, not every match — see removeLocalCompletionLogEntry.
+        const filtered = removeLocalCompletionLogEntry(existing, completionLogId);
         localStorage.setItem(key, JSON.stringify(filtered));
       } catch {}
     }
