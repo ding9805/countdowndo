@@ -5,7 +5,7 @@ import { Goal, getTaskColorHex } from '@/lib/types';
 import { Pencil, Trash2, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Input } from '@/components/ui/input';
-import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName } from '@/lib/goal-utils';
+import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid } from '@/lib/goal-utils';
 import { formatDueDate, isOverdue } from '@/lib/task-bank-utils';
 
 interface GoalCardProps {
@@ -144,6 +144,11 @@ export function GoalCard({ goal, onEdit, onDelete, onSetCurrentValue, onRegenera
       {!complete && !orphaned && (
         <p className="text-[11px] text-muted-foreground mt-2">
           Next up in Task Bank: <span className="text-foreground/80">{cursorTaskName(goal)}</span>
+          {/* Progress sits off the interval grid (an edit moved the grid, or
+              progress was typed in), so this one chunk is sized to catch up. */}
+          {isOffGrid(goal) && (
+            <span className="text-foreground/60"> — catch-up chunk, back to whole intervals after this</span>
+          )}
         </p>
       )}
 

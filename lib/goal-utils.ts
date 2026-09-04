@@ -28,9 +28,12 @@ export function formatGoalValue(value: number): string {
 // Used to label repeated adds of a goal's cursor task into a session so each
 // copy is the next chunk (10→20, then 20→30, …) instead of a duplicate name.
 export function cursorTaskNameOffset(goal: GoalLike, offset: number): string {
-  const size = intervalSize(goal);
-  const from = goal.currentValue + offset * size;
-  const to = Math.min(from + size, goal.targetValue);
+  // Walk the interval grid rather than adding intervalSize repeatedly: when
+  // progress sits off-grid, the first chunk is the corrective one and every
+  // chunk after it is a full interval on whole boundaries.
+  let from = goal.currentValue;
+  for (let i = 0; i < offset; i++) from = nextIntervalBoundary(goal, from);
+  const to = nextIntervalBoundary(goal, from);
   return `${goal.name}: ${formatGoalValue(from)}–${formatGoalValue(to)} ${goal.unit}`;
 }
 
@@ -55,22 +58,51 @@ export function clampGoalValue(value: number, goal: Pick<GoalLike, 'startValue' 
   return Math.min(Math.max(value, goal.startValue), goal.targetValue);
 }
 
-// Snaps a value onto the goal's interval grid (start + k * intervalSize), then
-// clamps it into range. Progress only ever moves a whole interval at a time, so
-// an off-grid currentValue means the grid changed under it — an edit to
-// start/target/intervals, or a hand-typed progress value. Left unsnapped, that
-// offset rides along forever and every chunk label inherits it (a 70→210 goal
-// in 20 intervals showing 105.1 instead of 105, and tasks named
-// "105.1–112.1"). Nearest boundary, so a value already on the grid is a no-op
-// and a manual entry lands on the closest real checkpoint.
-export function snapGoalValue(
-  value: number,
-  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'intervals'>
+// The interval grid: the checkpoints a goal is meant to land on, at
+// start + k * intervalSize. Progress can sit off that grid — an edit to
+// startValue/targetValue/intervals redraws it under the existing progress, and
+// a hand-typed progress value never lands on it by chance. Rather than rewrite
+// what the user has actually done, the goal steps to the next boundary, so the
+// one chunk after the change is short (or long) by exactly the discrepancy and
+// every chunk after it is back on whole numbers: a 70→210 goal in 20 chunks of
+// 7 sitting at 105.1 gets one 105.1→112 task, then 112→119, 119→126, …
+
+// First boundary strictly above `value` (clamped to the target). The epsilon
+// keeps a value already sitting on a boundary from returning itself through
+// floating-point dust.
+export function nextIntervalBoundary(
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'intervals'>,
+  value: number
 ): number {
   const size = intervalSize(goal);
-  if (!Number.isFinite(size) || size <= 0) return clampGoalValue(value, goal);
-  const steps = Math.round((value - goal.startValue) / size);
+  if (!Number.isFinite(size) || size <= 0) return goal.targetValue;
+  const steps = Math.floor((value - goal.startValue) / size + GOAL_EPSILON) + 1;
   return clampGoalValue(goal.startValue + steps * size, goal);
+}
+
+// First boundary strictly below `value` (clamped to the start). Used by undo:
+// retreating from a corrective chunk lands back on the grid rather than
+// restoring the old off-grid value, which is the point of the correction.
+export function previousIntervalBoundary(
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'intervals'>,
+  value: number
+): number {
+  const size = intervalSize(goal);
+  if (!Number.isFinite(size) || size <= 0) return goal.startValue;
+  const steps = Math.ceil((value - goal.startValue) / size - GOAL_EPSILON) - 1;
+  return clampGoalValue(goal.startValue + steps * size, goal);
+}
+
+// True when progress is off the interval grid, so the next chunk is a
+// corrective (short or long) one rather than a full interval.
+export function isOffGrid(
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'currentValue' | 'intervals'>
+): boolean {
+  if (isGoalComplete(goal)) return false;
+  const size = intervalSize(goal);
+  if (!Number.isFinite(size) || size <= 0) return false;
+  const offset = (goal.currentValue - goal.startValue) / size;
+  return Math.abs(offset - Math.round(offset)) > GOAL_EPSILON;
 }
 
 // Interval counts nearest `desired` that split a whole-number range into

@@ -3,7 +3,9 @@ import {
   cursorTaskNameOffset,
   intervalSize,
   remainingIntervals,
-  snapGoalValue,
+  nextIntervalBoundary,
+  previousIntervalBoundary,
+  isOffGrid,
   wholeIntervalSuggestions,
 } from '../goal-utils';
 import { GoalLike } from '../goal-utils';
@@ -65,25 +67,45 @@ describe('remainingIntervals', () => {
   });
 });
 
-describe('snapGoalValue', () => {
-  test('leaves a value already on the interval grid alone', () => {
-    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
-    expect(snapGoalValue(105, goal)).toBe(105);
+describe('interval grid correction', () => {
+  // The reported case: 70→210 in 20 chunks of 7, progress left at 105.1 by an
+  // edit that redrew the grid under it.
+  const drifted = makeGoal({ startValue: 70, targetValue: 210, intervals: 20, currentValue: 105.1 });
+
+  test('next boundary is the catch-up point, not current + one interval', () => {
+    expect(nextIntervalBoundary(drifted, drifted.currentValue)).toBe(112);
   });
 
-  test('pulls an off-grid value onto the nearest boundary', () => {
-    // The reported case: 70→210 in 20 chunks of 7, progress stuck at 105.1
-    // after an edit that redrew the grid.
-    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
-    expect(snapGoalValue(105.1, goal)).toBe(105);
-    expect(snapGoalValue(103, goal)).toBe(105);
-    expect(snapGoalValue(101, goal)).toBe(98);
+  test('a goal already on the grid steps a full interval', () => {
+    const onGrid = { ...drifted, currentValue: 105 };
+    expect(nextIntervalBoundary(onGrid, onGrid.currentValue)).toBe(112);
+    expect(previousIntervalBoundary(onGrid, onGrid.currentValue)).toBe(98);
   });
 
-  test('clamps to the goal range', () => {
-    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
-    expect(snapGoalValue(500, goal)).toBe(210);
-    expect(snapGoalValue(0, goal)).toBe(70);
+  test('retreat from a corrective chunk lands back on the grid', () => {
+    expect(previousIntervalBoundary(drifted, 112)).toBe(105);
+  });
+
+  test('boundaries clamp to the goal range', () => {
+    expect(nextIntervalBoundary(drifted, 209)).toBe(210);
+    expect(previousIntervalBoundary(drifted, 70)).toBe(70);
+  });
+
+  test('the cursor task is the catch-up chunk, then whole intervals', () => {
+    expect(cursorTaskNameOffset(drifted, 0)).toBe('Backtest strategy A: 105.1–112 trades');
+    expect(cursorTaskNameOffset(drifted, 1)).toBe('Backtest strategy A: 112–119 trades');
+    expect(cursorTaskNameOffset(drifted, 2)).toBe('Backtest strategy A: 119–126 trades');
+  });
+
+  test('isOffGrid flags only drifted, incomplete goals', () => {
+    expect(isOffGrid(drifted)).toBe(true);
+    expect(isOffGrid({ ...drifted, currentValue: 105 })).toBe(false);
+    expect(isOffGrid({ ...drifted, currentValue: 210 })).toBe(false);
+  });
+
+  test('remaining count stays whole across the correction', () => {
+    expect(remainingIntervals(drifted)).toBe(15);
+    expect(remainingIntervals({ ...drifted, currentValue: 112 })).toBe(14);
   });
 });
 

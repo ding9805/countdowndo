@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/db';
-import { cursorTaskName, snapGoalValue, intervalSize, isGoalComplete } from '@/lib/goal-utils';
+import { cursorTaskName, nextIntervalBoundary, previousIntervalBoundary, isGoalComplete } from '@/lib/goal-utils';
 import type { Goal, Prisma } from '@prisma/client';
 
 // Server-side goal stepping and cursor-task sync. All mutations run inside a
@@ -52,12 +52,15 @@ async function createCursorTask(tx: Tx, goal: Goal): Promise<Goal> {
 // Advance (+1) or retreat (-1) a goal by one interval, keeping the cursor
 // task's name in sync — deleting it on completion, recreating it on undo.
 export async function stepGoal(tx: Tx, goal: Goal, direction: 1 | -1): Promise<Goal> {
-  const step = intervalSize(goal) * direction;
-  // Snap, not just clamp: a goal whose grid was edited (or whose progress was
-  // typed in by hand) can be sitting off the interval boundaries, and plain
-  // stepping would carry that offset into every future chunk. Snapping repairs
-  // it on the next completed task; it's a no-op for a goal already on-grid.
-  const currentValue = snapGoalValue(goal.currentValue + step, goal);
+  // Step to the next/previous point on the interval grid rather than adding a
+  // raw intervalSize. For a goal already on-grid that's identical; for one
+  // knocked off-grid by an edit (or a hand-typed progress value) it makes this
+  // one chunk the corrective one and puts every later chunk back on whole
+  // numbers. See the grid helpers in goal-utils.
+  const currentValue =
+    direction === 1
+      ? nextIntervalBoundary(goal, goal.currentValue)
+      : previousIntervalBoundary(goal, goal.currentValue);
   const nowComplete = isGoalComplete({ currentValue, targetValue: goal.targetValue });
 
   let updated = await tx.goal.update({
