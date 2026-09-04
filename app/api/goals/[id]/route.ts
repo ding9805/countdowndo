@@ -6,7 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { goalUpdateSchema, formatZodError } from '@/lib/schemas';
 import { syncCursorTask, withSerializableRetry, SERIALIZABLE } from '@/lib/goal-service';
-import { clampGoalValue, isGoalComplete } from '@/lib/goal-utils';
+import { snapGoalValue, isGoalComplete } from '@/lib/goal-utils';
 import { getUserTagCorpus, normalizeTags } from '@/lib/tag-utils';
 
 export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
@@ -64,8 +64,13 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         if (merged.targetValue <= merged.startValue) {
           return { error: 'Target must be greater than the starting value', status: 400 } as const;
         }
-        // Clamp progress into the (possibly new) range, then recompute completion.
-        merged.currentValue = clampGoalValue(merged.currentValue, merged);
+        // Clamp progress into the (possibly new) range and snap it back onto
+        // the interval grid, then recompute completion. An edit that moves
+        // start/target/intervals redraws the grid under the existing progress,
+        // and without the snap that leftover offset sticks to the goal forever
+        // (105.1 / 210 on a 70→210 goal in 20 chunks, next task "105.1–112.1").
+        // Snapping also rounds a hand-typed progress value to a real checkpoint.
+        merged.currentValue = snapGoalValue(merged.currentValue, merged);
         const complete = isGoalComplete(merged);
 
         const updated = await tx.goal.update({

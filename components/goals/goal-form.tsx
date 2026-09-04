@@ -9,7 +9,7 @@ import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
 import { TagInput, mergePendingTag } from '@/components/task-bank/tag-input';
 import { formatDuration } from '@/lib/timer-utils';
-import { formatGoalValue } from '@/lib/goal-utils';
+import { formatGoalValue, wholeIntervalSuggestions } from '@/lib/goal-utils';
 
 export interface GoalFormData {
   name: string;
@@ -87,6 +87,11 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
     Number.isFinite(start) && Number.isFinite(target) && target > start &&
     Number.isInteger(nIntervals) && nIntervals >= 1;
   const chunkSize = validNumbers ? (target - start) / nIntervals : null;
+  // Interval counts that would give whole-number chunks, offered as one-tap
+  // fixes when the current count doesn't divide the range evenly.
+  const wholeSuggestions = validNumbers
+    ? wholeIntervalSuggestions(start, target, nIntervals)
+    : [];
   const isValid = !!name.trim() && !!unit.trim() && !!dueDate && validNumbers;
   const canSubmit = isValid && !submitting;
 
@@ -204,8 +209,26 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
             />
             {chunkSize !== null && (
               <p className="text-xs text-muted-foreground mt-1.5">
-                Each session covers ~{formatGoalValue(chunkSize)} {unit.trim() || 'units'}
-                {chunkSize * nIntervals !== target - start ? ' (last one may be shorter)' : ''}.
+                Each session covers {Number.isInteger(chunkSize) ? '' : '~'}
+                {formatGoalValue(chunkSize)} {unit.trim() || 'units'}.
+              </p>
+            )}
+            {wholeSuggestions.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                For whole {unit.trim() || 'units'} per session, try{' '}
+                {wholeSuggestions.map((n, i) => (
+                  <span key={n}>
+                    {i > 0 ? ' · ' : ''}
+                    <button
+                      type="button"
+                      onClick={() => setIntervals(String(n))}
+                      className="underline underline-offset-2 hover:text-foreground"
+                    >
+                      {n} ({(target - start) / n} each)
+                    </button>
+                  </span>
+                ))}
+                .
               </p>
             )}
           </div>

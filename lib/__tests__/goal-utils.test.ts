@@ -3,6 +3,8 @@ import {
   cursorTaskNameOffset,
   intervalSize,
   remainingIntervals,
+  snapGoalValue,
+  wholeIntervalSuggestions,
 } from '../goal-utils';
 import { GoalLike } from '../goal-utils';
 
@@ -60,5 +62,41 @@ describe('remainingIntervals', () => {
 
   test('a partial final chunk still counts as one interval', () => {
     expect(remainingIntervals(makeGoal({ targetValue: 85, intervals: 8, currentValue: 74.375 }))).toBe(1);
+  });
+});
+
+describe('snapGoalValue', () => {
+  test('leaves a value already on the interval grid alone', () => {
+    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
+    expect(snapGoalValue(105, goal)).toBe(105);
+  });
+
+  test('pulls an off-grid value onto the nearest boundary', () => {
+    // The reported case: 70→210 in 20 chunks of 7, progress stuck at 105.1
+    // after an edit that redrew the grid.
+    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
+    expect(snapGoalValue(105.1, goal)).toBe(105);
+    expect(snapGoalValue(103, goal)).toBe(105);
+    expect(snapGoalValue(101, goal)).toBe(98);
+  });
+
+  test('clamps to the goal range', () => {
+    const goal = makeGoal({ startValue: 70, targetValue: 210, intervals: 20 });
+    expect(snapGoalValue(500, goal)).toBe(210);
+    expect(snapGoalValue(0, goal)).toBe(70);
+  });
+});
+
+describe('wholeIntervalSuggestions', () => {
+  test('offers nearby counts that divide the range evenly', () => {
+    expect(wholeIntervalSuggestions(70, 210, 23)).toEqual([14, 20, 28]);
+  });
+
+  test('silent when the count already gives whole chunks', () => {
+    expect(wholeIntervalSuggestions(70, 210, 20)).toEqual([]);
+  });
+
+  test('silent for a fractional range', () => {
+    expect(wholeIntervalSuggestions(0, 10.5, 4)).toEqual([]);
   });
 });

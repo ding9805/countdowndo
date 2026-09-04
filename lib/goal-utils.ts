@@ -55,6 +55,47 @@ export function clampGoalValue(value: number, goal: Pick<GoalLike, 'startValue' 
   return Math.min(Math.max(value, goal.startValue), goal.targetValue);
 }
 
+// Snaps a value onto the goal's interval grid (start + k * intervalSize), then
+// clamps it into range. Progress only ever moves a whole interval at a time, so
+// an off-grid currentValue means the grid changed under it — an edit to
+// start/target/intervals, or a hand-typed progress value. Left unsnapped, that
+// offset rides along forever and every chunk label inherits it (a 70→210 goal
+// in 20 intervals showing 105.1 instead of 105, and tasks named
+// "105.1–112.1"). Nearest boundary, so a value already on the grid is a no-op
+// and a manual entry lands on the closest real checkpoint.
+export function snapGoalValue(
+  value: number,
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'intervals'>
+): number {
+  const size = intervalSize(goal);
+  if (!Number.isFinite(size) || size <= 0) return clampGoalValue(value, goal);
+  const steps = Math.round((value - goal.startValue) / size);
+  return clampGoalValue(goal.startValue + steps * size, goal);
+}
+
+// Interval counts nearest `desired` that split a whole-number range into
+// whole-number chunks — the divisors of the range. Used by the goal form to
+// suggest "20 gives you 7 per session" instead of leaving the user to find a
+// clean split by trial and error. Empty when the range isn't a whole number
+// (no count can make the chunks whole) or when `desired` already divides it.
+export function wholeIntervalSuggestions(
+  start: number,
+  target: number,
+  desired: number,
+  limit = 3
+): number[] {
+  const range = target - start;
+  if (!Number.isInteger(range) || range <= 0) return [];
+  if (!Number.isInteger(desired) || desired < 1) return [];
+  if (range % desired === 0) return [];
+  const divisors: number[] = [];
+  for (let d = 1; d <= range; d++) if (range % d === 0) divisors.push(d);
+  return divisors
+    .sort((a, b) => Math.abs(a - desired) - Math.abs(b - desired) || a - b)
+    .slice(0, limit)
+    .sort((a, b) => a - b);
+}
+
 // Fraction of the goal done, in [0, 1].
 export function goalProgress(goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'currentValue'>): number {
   const range = goal.targetValue - goal.startValue;
