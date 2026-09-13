@@ -26,7 +26,8 @@ export interface GoalFormData {
 interface GoalFormProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  mode: 'create' | 'edit';
+  // 'duplicate' creates a new goal, prefilled from initialGoal as a template.
+  mode: 'create' | 'edit' | 'duplicate';
   initialGoal?: Goal | null;
   existingTags: string[];
   onSubmit: (data: GoalFormData) => Promise<void> | void;
@@ -54,7 +55,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
 
   useEffect(() => {
     if (!open) return;
-    if (mode === 'edit' && initialGoal) {
+    if (mode !== 'create' && initialGoal) {
       setName(initialGoal.name);
       setUnit(initialGoal.unit);
       setStartValue(String(initialGoal.startValue));
@@ -137,7 +138,9 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{mode === 'create' ? 'New Goal' : 'Edit Goal'}</DialogTitle>
+          <DialogTitle>
+            {mode === 'create' ? 'New Goal' : mode === 'duplicate' ? 'Duplicate Goal' : 'Edit Goal'}
+          </DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
           <div>
@@ -295,7 +298,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
             aria-disabled={!canSubmit}
             className={`bg-primary hover:bg-primary/90 text-primary-foreground ${!isValid ? 'opacity-50' : ''}`}
           >
-            {mode === 'create' ? 'Create Goal' : 'Save Changes'}
+            {mode === 'edit' ? 'Save Changes' : 'Create Goal'}
           </Button>
         </DialogFooter>
       </DialogContent>

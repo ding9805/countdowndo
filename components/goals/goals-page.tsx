@@ -22,6 +22,7 @@ export function GoalsPage() {
   const [loading, setLoading] = useState(true);
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
+  const [formMode, setFormMode] = useState<'create' | 'edit' | 'duplicate'>('create');
 
   const fetchGoals = useCallback(async () => {
     try {
@@ -63,11 +64,12 @@ export function GoalsPage() {
 
   const activeCount = useMemo(() => goals.filter((g) => !g.completedAt).length, [goals]);
 
-  const openCreate = () => { setEditingGoal(null); setFormOpen(true); };
-  const openEdit = (goal: Goal) => { setEditingGoal(goal); setFormOpen(true); };
+  const openCreate = () => { setEditingGoal(null); setFormMode('create'); setFormOpen(true); };
+  const openEdit = (goal: Goal) => { setEditingGoal(goal); setFormMode('edit'); setFormOpen(true); };
+  const openDuplicate = (goal: Goal) => { setEditingGoal(goal); setFormMode('duplicate'); setFormOpen(true); };
 
   const handleSubmit = async (data: GoalFormData) => {
-    const isEdit = !!editingGoal;
+    const isEdit = formMode === 'edit' && !!editingGoal;
     try {
       const res = await fetch(isEdit ? `/api/goals/${editingGoal!.id}` : '/api/goals', {
         method: isEdit ? 'PUT' : 'POST',
@@ -201,6 +203,7 @@ export function GoalsPage() {
                       key={goal.id}
                       goal={goal}
                       onEdit={openEdit}
+                      onDuplicate={openDuplicate}
                       onDelete={handleDelete}
                       onSetCurrentValue={handleSetCurrentValue}
                       onRegenerate={handleRegenerate}
@@ -216,7 +219,7 @@ export function GoalsPage() {
       <GoalForm
         open={formOpen}
         onOpenChange={setFormOpen}
-        mode={editingGoal ? 'edit' : 'create'}
+        mode={formMode}
         initialGoal={editingGoal}
         existingTags={existingTags}
         onSubmit={handleSubmit}

@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Goal, getTaskColorHex } from '@/lib/types';
-import { Pencil, Trash2, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw, Check, X } from 'lucide-react';
+import { Pencil, Copy, Trash2, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Input } from '@/components/ui/input';
 import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid } from '@/lib/goal-utils';
@@ -11,12 +11,13 @@ import { formatDueDate, isOverdue } from '@/lib/task-bank-utils';
 interface GoalCardProps {
   goal: Goal;
   onEdit: (goal: Goal) => void;
+  onDuplicate: (goal: Goal) => void;
   onDelete: (id: string) => void;
   onSetCurrentValue: (goal: Goal, value: number) => void;
   onRegenerate: (id: string) => void;
 }
 
-export function GoalCard({ goal, onEdit, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
+export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressInput, setProgressInput] = useState('');
 
@@ -113,7 +114,15 @@ export function GoalCard({ goal, onEdit, onDelete, onSetCurrentValue, onRegenera
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <button
+            onClick={() => onDuplicate(goal)}
+            title="Duplicate as a new goal"
+            className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
             onClick={() => onEdit(goal)}
+            title="Edit goal"
             className="p-2 rounded-lg hover:bg-secondary/50 text-muted-foreground hover:text-foreground transition-colors"
           >
             <Pencil className="w-4 h-4" />
