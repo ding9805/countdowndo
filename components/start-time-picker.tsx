@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
 interface StartTimePickerProps {
   value: string | null; // "HH:MM" 24-hour format
@@ -12,19 +12,22 @@ const VISIBLE_ITEMS = 5;
 
 export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
   // Parse initial value
+  // Keeps the exact minute: the planning start defaults to "now", and snapping
+  // it to a 5-minute step on mount would silently shift every projected end
+  // time by up to 2.5 minutes before the user touched anything.
   const parseValue = (val: string | null) => {
     if (!val) {
       const now = new Date();
       return {
         hour12: now.getHours() % 12 || 12,
-        minute: Math.round(now.getMinutes() / 5) * 5 % 60,
+        minute: now.getMinutes(),
         period: now.getHours() >= 12 ? 'PM' as const : 'AM' as const,
       };
     }
     const [h, m] = val.split(':').map(Number);
     return {
       hour12: (h % 12) || 12,
-      minute: Math.round((m || 0) / 5) * 5 % 60,
+      minute: Math.max(0, Math.min(59, m || 0)),
       period: (h >= 12 ? 'PM' : 'AM') as 'AM' | 'PM',
     };
   };
@@ -38,16 +41,25 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
   const minuteRef = useRef<HTMLDivElement>(null);
 
   const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  const minutes = Array.from({ length: 12 }, (_, i) => i * 5); // 0, 5, 10...55
+  // 5-minute steps, plus the initial minute when it's off-grid so the wheel
+  // can show (and keep) the exact current time until the user scrolls away.
+  const minutes = useMemo(() => {
+    const steps = Array.from({ length: 12 }, (_, i) => i * 5); // 0, 5, 10...55
+    if (!steps.includes(initial.minute)) steps.push(initial.minute);
+    return steps.sort((a, b) => a - b);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Emit onChange
+  // Emit onChange — only when the wheel state differs from the prop, so
+  // mounting doesn't re-emit (or rewrite) the value it was given.
   useEffect(() => {
     let h24 = hour12 % 12;
     if (period === 'PM') h24 += 12;
     const hStr = String(h24).padStart(2, '0');
     const mStr = String(minute).padStart(2, '0');
-    onChange(`${hStr}:${mStr}`);
-  }, [hour12, minute, period, onChange]);
+    const next = `${hStr}:${mStr}`;
+    if (next !== value) onChange(next);
+  }, [hour12, minute, period, onChange, value]);
 
   // Scroll to initial position
   useEffect(() => {
@@ -59,6 +71,7 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
     if (minuteRef.current && mIdx >= 0) {
       minuteRef.current.scrollTop = mIdx * ITEM_HEIGHT;
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleScroll = useCallback(

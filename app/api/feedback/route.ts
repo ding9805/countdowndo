@@ -52,8 +52,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Feedback must be under ${MAX_MESSAGE_LENGTH} characters` }, { status: 400 });
     }
 
-    // Validate optional email
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // Validate optional email. Anything but a string (a number, an object) is
+    // rejected here rather than crashing on `.trim()` below.
+    if (email !== undefined && email !== null && email !== '' && typeof email !== 'string') {
+      return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
+    }
+    const trimmedEmail = typeof email === 'string' ? email.trim() : '';
+    if (trimmedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
       return NextResponse.json({ error: 'Please enter a valid email address' }, { status: 400 });
     }
 
@@ -84,13 +89,21 @@ export async function POST(req: NextRequest) {
       data: {
         category,
         message: trimmedMessage,
-        email: email?.trim() || null,
+        email: trimmedEmail || null,
         ipHash,
       },
     });
 
-    // Send email notification (non-blocking)
-    sendFeedbackEmail(feedback).catch((e) => console.error('Failed to send feedback email:', e));
+    // Send the notification before responding. On serverless hosts the
+    // function can be frozen as soon as the response is returned (see the
+    // note in lib/rate-limit.ts), so a detached promise here may never run.
+    // The feedback row is already stored, so a mail failure isn't the user's
+    // problem — log it and still report success.
+    try {
+      await sendFeedbackEmail(feedback);
+    } catch (e) {
+      console.error('Failed to send feedback email:', e);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -151,8 +164,8 @@ async function sendFeedbackEmail(feedback: { id: string; category: string; messa
     }),
   });
   // fetch doesn't reject on 4xx/5xx — surface Resend rejections in the logs
-  // (this call is already fire-and-forget, so there's nothing else to do
-  // with it, but a silent failure here means notifications quietly stop).
+  // (the caller already treats mail as best-effort, but a silent failure
+  // here means notifications quietly stop).
   if (!res.ok) {
     const errBody = await res.text().catch(() => '');
     console.error('Resend rejected feedback notification:', res.status, errBody);

@@ -8,6 +8,38 @@ import { toast } from 'sonner';
 
 const SYNC_INTERVAL = 3000;
 const SAVE_DEBOUNCE = 1000;
+// How long to wait before re-sending a save that failed (network error or a
+// non-409 error status). Matches the poll interval so a retry always lands
+// before the next poll could otherwise revert the unsaved change.
+const SAVE_RETRY_DELAY = 3000;
+
+interface SessionPayload {
+  tasks: Task[];
+  sessionState: SessionState;
+  sessionStartMs: number;
+  pausedElapsed: number;
+  soundPlayed: string[];
+  sessionMode: SessionMode;
+  sessionTotalSeconds: number;
+}
+
+function syncKey(p: {
+  tasks: unknown;
+  sessionState: unknown;
+  sessionStartMs: unknown;
+  pausedElapsed: unknown;
+  sessionMode: unknown;
+  sessionTotalSeconds?: unknown;
+}): string {
+  return JSON.stringify({
+    tasks: p.tasks,
+    sessionState: p.sessionState,
+    sessionStartMs: p.sessionStartMs,
+    pausedElapsed: p.pausedElapsed,
+    sessionMode: p.sessionMode,
+    sessionTotalSeconds: p.sessionTotalSeconds ?? 0,
+  });
+}
 
 // Owns the timer engine (tick/remaining/progress), cross-device sync
 // (load/poll/save/conflict-resolution), and task-list mutations for the
@@ -30,6 +62,22 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
+  // Saves are full-state snapshots, so only the newest one queued matters.
+  // Sends are serialized through saveChainRef so a second save never leaves
+  // while the first is in flight: it would carry the first save's (now stale)
+  // lastKnownUpdatedAt, get a 409 from our own write, and roll local state
+  // back to the first payload. A failed send stays queued and is retried.
+  const queuedPayloadRef = useRef<SessionPayload | null>(null);
+  const saveChainRef = useRef<Promise<void>>(Promise.resolve());
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Bumped by handleStop (and a cross-device stop seen by the poll) so async
+  // callbacks captured during a session — the completion-log id attach, a
+  // queued save — can tell the session they belong to has already ended.
+  const sessionEpochRef = useRef(0);
+  // Completion-log requests still in flight, keyed by task id. Un-marking a
+  // task before its log id has come back can't retract anything yet, so it
+  // flags the entry as cancelled and the retraction runs when the id lands.
+  const pendingLogRef = useRef<Map<string, { promise: Promise<Record<string, string>>; cancelled: boolean }>>(new Map());
   // Bumped synchronously by every local write, before its debounce. A poll
   // response is only trustworthy if this is unchanged across the poll's fetch:
   // a poll issued just before a local change (e.g. Clear all) comes back
@@ -124,21 +172,18 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       setSessionState('paused');
       setSessionStartTime(null);
       setPausedElapsed(data.pausedElapsed ?? 0);
+      // The tick effect only runs while running, so a paused session has to
+      // seed elapsedSeconds here or every timer shows its full duration.
+      setElapsedSeconds(data.pausedElapsed ?? 0);
     } else {
       setSessionState('idle');
       setSessionStartTime(null);
       setPausedElapsed(0);
+      setElapsedSeconds(0);
     }
 
     lastKnownUpdatedAtRef.current = data.updatedAt ?? null;
-    lastSyncRef.current = JSON.stringify({
-      tasks: data.tasks,
-      sessionState: data.sessionState,
-      sessionStartMs: data.sessionStartMs,
-      pausedElapsed: data.pausedElapsed,
-      sessionMode: data.sessionMode,
-      sessionTotalSeconds: data.sessionTotalSeconds ?? 0,
-    });
+    lastSyncRef.current = syncKey(data);
     sessionSavedToDbRef.current = data.sessionState === 'running' || data.sessionState === 'paused';
   }, []);
 
@@ -172,7 +217,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       if (!shouldApplyPolledSession({
         writeSeqAtStart: seqAtStart,
         writeSeqNow: writeSeqRef.current,
-        savePending: saveTimeoutRef.current !== null,
+        savePending: saveTimeoutRef.current !== null || queuedPayloadRef.current !== null || retryTimeoutRef.current !== null,
         saving: isSavingRef.current,
         responseUpdatedAt: data?.updatedAt ?? null,
         lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
@@ -181,27 +226,32 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         // Only reset to idle if we previously confirmed the session was saved to DB.
         // If save never succeeded (e.g. API error), don't kill the local session.
         if (sessionSavedToDbRef.current) {
+          // Another device stopped the session. Mirror handleStop's local
+          // cleanup: drop the done tasks and reset the envelope, otherwise the
+          // next idle edit here re-saves the stale done list as a staged
+          // session and undoes the stop on the device that issued it.
+          sessionEpochRef.current += 1;
           setSessionState('idle');
           setSessionStartTime(null);
           setPausedElapsed(0);
           setElapsedSeconds(0);
+          setTasks((prev: Task[]) => {
+            const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
+            const reset = recalculateCumulativeTimes(
+              remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+            );
+            setSessionTotalSeconds(reset.length > 0 ? reset[reset.length - 1].cumulativeSeconds : 0);
+            return reset;
+          });
           soundPlayedRef.current = new Set();
           sessionSavedToDbRef.current = false;
           lastKnownUpdatedAtRef.current = null;
+          lastSyncRef.current = '';
         }
         return;
       }
 
-      const remoteState = JSON.stringify({
-        tasks: data.tasks,
-        sessionState: data.sessionState,
-        sessionStartMs: data.sessionStartMs,
-        pausedElapsed: data.pausedElapsed,
-        sessionMode: data.sessionMode,
-        sessionTotalSeconds: data.sessionTotalSeconds ?? 0,
-      });
-
-      if (remoteState !== lastSyncRef.current) {
+      if (syncKey(data) !== lastSyncRef.current) {
         applyRemoteSessionData(data);
       } else {
         // Data is unchanged, but still track the latest updatedAt/timing fields
@@ -212,6 +262,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           setPausedElapsed(data.pausedElapsed ?? 0);
         } else if (data.sessionState === 'paused') {
           setPausedElapsed(data.pausedElapsed ?? 0);
+          setElapsedSeconds(data.pausedElapsed ?? 0);
         }
       }
     } catch (e: any) {
@@ -219,127 +270,149 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
   };
 
-  const saveSessionToDb = useCallback((overrideTasks?: Task[], overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number, overrideMode?: SessionMode, overrideTotalSeconds?: number) => {
-    if (!isLoggedIn) return; // Don't save for guests
-    writeSeqRef.current += 1;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = setTimeout(async () => {
-      saveTimeoutRef.current = null;
-      isSavingRef.current = true;
-      try {
-        const currentTasks = overrideTasks ?? tasks;
-        const currentState = overrideState ?? sessionState;
-        const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
-        const currentPausedElapsed = overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed;
-        const currentMode = overrideMode ?? sessionMode;
-        const currentTotalSeconds = overrideTotalSeconds !== undefined ? overrideTotalSeconds : sessionTotalSeconds;
-
-        const payload = {
-          tasks: currentTasks,
-          sessionState: currentState,
-          sessionStartMs: currentStartMs ?? Date.now(),
-          pausedElapsed: currentPausedElapsed,
-          soundPlayed: Array.from(soundPlayedRef.current),
-          sessionMode: currentMode,
-          sessionTotalSeconds: currentTotalSeconds,
-          lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
-        };
-
-        lastSyncRef.current = JSON.stringify({
-          tasks: payload.tasks,
-          sessionState: payload.sessionState,
-          sessionStartMs: payload.sessionStartMs,
-          pausedElapsed: payload.pausedElapsed,
-          sessionMode: payload.sessionMode,
-          sessionTotalSeconds: payload.sessionTotalSeconds,
-        });
-
-        const res = await fetch('/api/active-session', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        if (res.status === 409) {
-          // Another device/tab saved since we last synced — adopt its state
-          // instead of retrying this (now-stale) write over it.
-          const conflictBody = await res.json().catch(() => null);
-          if (conflictBody?.latest) {
-            applyRemoteSessionData(conflictBody.latest);
-            toast.info('Synced with a more recent change from another device');
-          }
-        } else if (res.ok) {
-          const saved = await res.json().catch(() => null);
-          if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
-          sessionSavedToDbRef.current = true;
-        }
-      } catch (e: any) {
-        console.error('Failed to save session:', e);
-      } finally {
-        isSavingRef.current = false;
-      }
-    }, SAVE_DEBOUNCE);
-  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, applyRemoteSessionData]);
-
-  // Immediate save for critical operations (bypasses debounce)
-  const saveSessionToDbImmediate = useCallback(async (overrideTasks: Task[], overrideTotalSeconds: number) => {
-    if (!isLoggedIn) return;
-    writeSeqRef.current += 1;
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-    saveTimeoutRef.current = null;
+  // Sends the newest queued payload. Runs only from saveChainRef so at most
+  // one request is ever in flight; lastKnownUpdatedAt is read at send time so
+  // it reflects whatever the previous send in the chain learned.
+  const drainSaveQueue = useCallback(async () => {
+    const payload = queuedPayloadRef.current;
+    if (!payload) return;
+    queuedPayloadRef.current = null;
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
     isSavingRef.current = true;
+    let failed = false;
     try {
-      const payload = {
-        tasks: overrideTasks,
-        sessionState: sessionState,
-        sessionStartMs: sessionStartTime ?? Date.now(),
-        pausedElapsed: pausedElapsed,
-        soundPlayed: Array.from(soundPlayedRef.current),
-        sessionMode: sessionMode,
-        sessionTotalSeconds: overrideTotalSeconds,
-        lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
-      };
-
-      lastSyncRef.current = JSON.stringify({
-        tasks: payload.tasks,
-        sessionState: payload.sessionState,
-        sessionStartMs: payload.sessionStartMs,
-        pausedElapsed: payload.pausedElapsed,
-        sessionMode: payload.sessionMode,
-        sessionTotalSeconds: payload.sessionTotalSeconds,
-      });
-
       const res = await fetch('/api/active-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, lastKnownUpdatedAt: lastKnownUpdatedAtRef.current }),
       });
       if (res.status === 409) {
+        // Another device/tab saved since we last synced — adopt its state
+        // instead of retrying this (now-stale) write over it.
         const conflictBody = await res.json().catch(() => null);
         if (conflictBody?.latest) {
+          // Anything queued behind this send was computed from the same
+          // pre-conflict local state, so it would overwrite the other device's
+          // change on the next send. Remote wins: drop it too.
+          queuedPayloadRef.current = null;
           applyRemoteSessionData(conflictBody.latest);
           toast.info('Synced with a more recent change from another device');
         }
       } else if (res.ok) {
         const saved = await res.json().catch(() => null);
         if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
+        lastSyncRef.current = syncKey(payload);
         sessionSavedToDbRef.current = true;
+        toast.dismiss('session-save-error');
+      } else {
+        failed = true;
       }
     } catch (e: any) {
-      console.error('Failed to save session immediately:', e);
+      console.error('Failed to save session:', e);
+      failed = true;
     } finally {
       isSavingRef.current = false;
     }
-  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, applyRemoteSessionData]);
+    if (failed && !queuedPayloadRef.current) {
+      // Keep the unsent payload queued (so the poll guard treats local state
+      // as authoritative rather than reverting it) and try again shortly.
+      queuedPayloadRef.current = payload;
+      toast.error("Couldn't save your session — retrying", { id: 'session-save-error' });
+      retryTimeoutRef.current = setTimeout(() => {
+        retryTimeoutRef.current = null;
+        saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+      }, SAVE_RETRY_DELAY);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [applyRemoteSessionData]);
 
-  const deleteSessionFromDb = async () => {
+  const enqueueSave = useCallback((payload: SessionPayload) => {
+    queuedPayloadRef.current = payload;
+    saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+  }, [drainSaveQueue]);
+
+  // Drops anything not yet sent. In-flight requests are left to finish; callers
+  // that must run after them (e.g. the stop's DELETE) chain on saveChainRef.
+  const cancelPendingSaves = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    queuedPayloadRef.current = null;
+    toast.dismiss('session-save-error');
+  }, []);
+
+  const saveSessionToDb = useCallback((overrideTasks?: Task[], overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number, overrideMode?: SessionMode, overrideTotalSeconds?: number) => {
+    if (!isLoggedIn) return; // Don't save for guests
+    writeSeqRef.current += 1;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null;
+      const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
+      enqueueSave({
+        tasks: overrideTasks ?? tasks,
+        sessionState: overrideState ?? sessionState,
+        sessionStartMs: currentStartMs ?? Date.now(),
+        pausedElapsed: overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed,
+        soundPlayed: Array.from(soundPlayedRef.current),
+        sessionMode: overrideMode ?? sessionMode,
+        sessionTotalSeconds: overrideTotalSeconds !== undefined ? overrideTotalSeconds : sessionTotalSeconds,
+      });
+    }, SAVE_DEBOUNCE);
+  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, enqueueSave]);
+
+  // Immediate save for critical operations (bypasses debounce)
+  const saveSessionToDbImmediate = useCallback((overrideTasks: Task[], overrideTotalSeconds: number, overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number) => {
     if (!isLoggedIn) return;
+    writeSeqRef.current += 1;
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = null;
+    const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
+    enqueueSave({
+      tasks: overrideTasks,
+      sessionState: overrideState ?? sessionState,
+      sessionStartMs: currentStartMs ?? Date.now(),
+      pausedElapsed: overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed,
+      soundPlayed: Array.from(soundPlayedRef.current),
+      sessionMode: sessionMode,
+      sessionTotalSeconds: overrideTotalSeconds,
+    });
+  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, enqueueSave]);
+
+  // Cancels unsent saves, waits for any in-flight one, then deletes the row —
+  // so a save that was already on the wire can't land after the DELETE and
+  // resurrect the session.
+  const deleteSessionFromDb = useCallback(async () => {
+    if (!isLoggedIn) return;
+    writeSeqRef.current += 1;
+    cancelPendingSaves();
+    await saveChainRef.current.catch(() => {});
     try {
+      isSavingRef.current = true;
       await fetch('/api/active-session', { method: 'DELETE' });
       lastKnownUpdatedAtRef.current = null;
+      lastSyncRef.current = '';
     } catch (e: any) {
       console.error('Failed to delete session:', e);
+    } finally {
+      isSavingRef.current = false;
     }
-  };
+  }, [isLoggedIn, cancelPendingSaves]);
+
+  // Clean up timers on unmount.
+  useEffect(() => {
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
+  }, []);
 
   // Timer tick
   useEffect(() => {
@@ -403,6 +476,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     soundPlayedRef.current = new Set();
     sessionSavedToDbRef.current = false;
     pendingOneOffBankTaskIdsRef.current.clear();
+    pendingLogRef.current.clear();
     const startMs = Date.now();
     setSessionStartTime(startMs);
     setPausedElapsed(0);
@@ -630,20 +704,37 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       new Set([...doneBankTaskIds, ...pendingOneOffBankTaskIdsRef.current])
     );
 
+    // Invalidate every callback still pending from this session (debounced
+    // saves, the completion-log id attach) before touching state, so none of
+    // them can re-save a 'running' snapshot after the row is gone.
+    sessionEpochRef.current += 1;
+    cancelPendingSaves();
+
+    // On stop, filter out done tasks so only unfinished ones remain.
+    const remaining = recalculateCumulativeTimes(
+      (tasks ?? [])
+        .filter((t: Task) => !t?.isDone)
+        .map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+    );
+    const remainingTotal = remaining.length > 0 ? remaining[remaining.length - 1].cumulativeSeconds : 0;
+
     setSessionState('idle');
     setSessionStartTime(null);
     setPausedElapsed(0);
     setElapsedSeconds(0);
-    setSessionTotalSeconds(0);
+    setSessionTotalSeconds(remainingTotal);
     soundPlayedRef.current = new Set();
-    // On stop, filter out done tasks so only unfinished ones remain
-    setTasks((prev: Task[]) => {
-      const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
-      return recalculateCumulativeTimes(
-        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
-      );
-    });
-    deleteSessionFromDb();
+    setTasks(remaining);
+
+    if (remaining.length > 0) {
+      // Persist the leftovers as a staged (idle) list, the same way idle edits
+      // are saved, so they survive a refresh. Other devices see the idle row on
+      // their next poll and drop out of the session too.
+      sessionSavedToDbRef.current = false;
+      saveSessionToDbImmediate(remaining, remainingTotal, 'idle', null, 0);
+    } else {
+      deleteSessionFromDb();
+    }
     completeOneOffBankTasks(bankTaskIdsToSweep);
     pendingOneOffBankTaskIdsRef.current.clear();
   };
@@ -665,8 +756,18 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       );
       setTasks(updated);
       saveSessionToDb(updated);
+      const pending = pendingLogRef.current.get(taskId);
       if (task.completionLogId) {
         retractCompletionLog(task.completionLogId);
+      } else if (pending && !pending.cancelled) {
+        // The log request hasn't answered yet, so there's no id to retract.
+        // Cancel the attach and retract as soon as the id arrives — otherwise
+        // the entry is orphaned and re-marking logs a second one.
+        pending.cancelled = true;
+        pending.promise.then((idMap) => {
+          const logId = idMap[taskId];
+          if (logId) retractCompletionLog(logId);
+        });
       }
       // Restore the soft-deleted bank row so an accidental check-off doesn't
       // keep the task hidden from the bank.
@@ -692,7 +793,15 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       stepGoalForBankTask(task.bankTaskId, 'advance');
     }
 
-    logCompletedTasks([{ ...task, isDone: true, doneAt }]).then((idMap) => {
+    const epoch = sessionEpochRef.current;
+    const promise = logCompletedTasks([{ ...task, isDone: true, doneAt }]);
+    const entry = { promise, cancelled: false };
+    pendingLogRef.current.set(taskId, entry);
+    promise.then((idMap) => {
+      if (pendingLogRef.current.get(taskId) === entry) pendingLogRef.current.delete(taskId);
+      // Un-marked while the request was out (handled there), or the session
+      // ended: nothing to attach, and saving here would resurrect the session.
+      if (entry.cancelled || sessionEpochRef.current !== epoch) return;
       const logId = idMap[taskId];
       if (!logId) return;
       // Use the functional form here: this resolves after an await, so the

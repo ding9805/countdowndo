@@ -146,12 +146,22 @@ export function SessionTimeline({
     (totalSeconds / 60) * pixelsPerMinute,
   );
 
+  // See ActiveSession: while paused, wall-clock time keeps moving, so the
+  // anchor has to follow it or every projected time freezes.
+  const [pausedNowMs, setPausedNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isLive || sessionState !== 'paused') return;
+    setPausedNowMs(Date.now());
+    const id = setInterval(() => setPausedNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [isLive, sessionState]);
+
   const anchorMs = useMemo(() => {
     if (isLive) {
       if (sessionStartTimestamp && sessionStartTimestamp > 0) {
         return sessionStartTimestamp - pausedElapsed * 1000;
       }
-      return Date.now() - elapsedSeconds * 1000;
+      return pausedNowMs - elapsedSeconds * 1000;
     }
 
     if (!planningStartTime) return null;
@@ -164,6 +174,7 @@ export function SessionTimeline({
     elapsedSeconds,
     isLive,
     pausedElapsed,
+    pausedNowMs,
     planningStartTime,
     sessionStartTimestamp,
   ]);
@@ -302,7 +313,14 @@ export function SessionTimeline({
   };
 
   const moveTaskToEdge = (index: number, edge: 'top' | 'bottom') => {
-    const targetIndex = edge === 'top' ? 0 : tasks.length - 1;
+    let targetIndex = tasks.length - 1;
+    if (edge === 'top') {
+      // Same rule as the card views: land just below any completed tasks
+      // sitting at the top, which stay put as a record of finished work.
+      let topDoneCount = 0;
+      while (topDoneCount < tasks.length && tasks[topDoneCount]?.isDone) topDoneCount++;
+      targetIndex = Math.min(topDoneCount, tasks.length - 1);
+    }
     if (targetIndex === index) return;
     const next = [...tasks];
     const [moved] = next.splice(index, 1);

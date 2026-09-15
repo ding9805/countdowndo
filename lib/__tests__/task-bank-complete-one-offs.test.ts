@@ -54,9 +54,24 @@ describe('POST /api/task-bank/complete-one-offs', () => {
     expect(json).toEqual({ count: 2, restored: 0 });
     expect(deleteMany).toHaveBeenCalledWith({
       where: {
-        id: { in: ['a', 'b', 'c'] },
         userId: 'user-1',
         isOneOff: true,
+        OR: [{ id: { in: ['a', 'b', 'c'] } }, { completedAt: { not: null } }],
+      },
+    });
+  });
+
+  test('also deletes one-offs checked off on another device (soft-deleted, id unknown here)', async () => {
+    (getServerSession as jest.Mock).mockResolvedValue({ user: { id: 'user-1' } });
+    deleteMany.mockResolvedValue({ count: 1 });
+
+    const res = await POST(makeReq({ bankTaskIds: [] }) as any);
+    expect(res.status).toBe(200);
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: {
+        userId: 'user-1',
+        isOneOff: true,
+        OR: [{ completedAt: { not: null } }],
       },
     });
   });
@@ -76,15 +91,16 @@ describe('POST /api/task-bank/complete-one-offs', () => {
     });
   });
 
-  test('empty batch skips the delete but still restores', async () => {
+  test('empty batch still sweeps soft-deleted one-offs and restores the rest', async () => {
     (getServerSession as jest.Mock).mockResolvedValue({ user: { id: 'user-1' } });
+    deleteMany.mockResolvedValue({ count: 0 });
     updateMany.mockResolvedValue({ count: 1 });
 
     const res = await POST(makeReq({ bankTaskIds: [] }) as any);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toEqual({ count: 0, restored: 1 });
-    expect(deleteMany).not.toHaveBeenCalled();
+    expect(deleteMany).toHaveBeenCalledTimes(1);
     expect(updateMany).toHaveBeenCalled();
   });
 

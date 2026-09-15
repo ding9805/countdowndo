@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, getTaskColorHex } from '@/lib/types';
 import { ColorPicker } from './color-picker';
 import { formatTime, formatDuration } from '@/lib/timer-utils';
@@ -95,6 +95,17 @@ export function ActiveSession({
     setShowPicker(false);
   };
 
+  // While paused the elapsed clock stands still but wall-clock time doesn't,
+  // so the projected end times slide later every second. Re-anchor on a tick
+  // rather than freezing at whatever Date.now() was when the pause began.
+  const [pausedNowMs, setPausedNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (sessionState !== 'paused') return;
+    setPausedNowMs(Date.now());
+    const id = setInterval(() => setPausedNowMs(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [sessionState]);
+
   // Compute the real-world start time of the session (accounting for pauses)
   const sessionRealStartMs = useMemo(() => {
     // The effective "zero elapsed" moment in real time
@@ -102,8 +113,8 @@ export function ActiveSession({
       return sessionStartTimestamp - pausedElapsed * 1000;
     }
     // When paused, sessionStartTimestamp is null; use current time - elapsed
-    return Date.now() - elapsedSeconds * 1000;
-  }, [sessionStartTimestamp, pausedElapsed, elapsedSeconds]);
+    return pausedNowMs - elapsedSeconds * 1000;
+  }, [sessionStartTimestamp, pausedElapsed, elapsedSeconds, pausedNowMs]);
 
   const getTaskEndTime = (task: Task): string => {
     const endMs = sessionRealStartMs + (task?.cumulativeSeconds ?? 0) * 1000;
