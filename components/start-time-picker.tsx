@@ -43,12 +43,33 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
   const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
   // 5-minute steps, plus the initial minute when it's off-grid so the wheel
   // can show (and keep) the exact current time until the user scrolls away.
+  // extraMinute starts as the initial minute and is replaced by "Now".
+  const [extraMinute, setExtraMinute] = useState(initial.minute);
   const minutes = useMemo(() => {
     const steps = Array.from({ length: 12 }, (_, i) => i * 5); // 0, 5, 10...55
-    if (!steps.includes(initial.minute)) steps.push(initial.minute);
+    if (!steps.includes(extraMinute)) steps.push(extraMinute);
     return steps.sort((a, b) => a - b);
+  }, [extraMinute]);
+
+  // Bumped by "Now" to scroll the wheels once the minute list has re-rendered.
+  const [nowTick, setNowTick] = useState(0);
+  const setToNow = () => {
+    const now = new Date();
+    setExtraMinute(now.getMinutes());
+    setHour12(now.getHours() % 12 || 12);
+    setMinute(now.getMinutes());
+    setPeriod(now.getHours() >= 12 ? 'PM' : 'AM');
+    setNowTick((t) => t + 1);
+  };
+
+  useEffect(() => {
+    if (nowTick === 0) return;
+    const hIdx = hours.indexOf(hour12);
+    const mIdx = minutes.indexOf(minute);
+    if (hIdx >= 0) hourRef.current?.scrollTo({ top: hIdx * ITEM_HEIGHT, behavior: 'smooth' });
+    if (mIdx >= 0) minuteRef.current?.scrollTo({ top: mIdx * ITEM_HEIGHT, behavior: 'smooth' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [nowTick]);
 
   // Emit onChange — only when the wheel state differs from the prop, so
   // mounting doesn't re-emit (or rewrite) the value it was given.
@@ -127,6 +148,7 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
   );
 
   return (
+    <div className="flex flex-col items-center gap-2">
     <div className="flex items-center gap-2">
       {renderColumn(hours, hour12, hourRef, setHour12)}
       <span className="text-xl font-mono text-muted-foreground">:</span>
@@ -154,6 +176,14 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
           PM
         </button>
       </div>
+    </div>
+      <button
+        type="button"
+        onClick={setToNow}
+        className="px-3 py-1 rounded-lg text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+      >
+        Time now
+      </button>
     </div>
   );
 }
