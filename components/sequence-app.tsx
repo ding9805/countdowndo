@@ -211,6 +211,8 @@ export function SequenceApp() {
                 onEditTask={handleEditTask}
                 onReorder={handleReorder}
                 onOpenTaskBank={() => setBankPickerOpen(true)}
+                isLoggedIn={isLoggedIn}
+                onAddFromBank={handleAddFromBank}
               />
             )}
           </div>

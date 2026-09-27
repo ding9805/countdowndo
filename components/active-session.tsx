@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, getTaskColorHex } from '@/lib/types';
+import { Task, PickedBankTask, SessionState, SessionMode, TaskOrder, TaskColorId, getTaskColorHex } from '@/lib/types';
+import { TaskNameAutocomplete } from './task-name-autocomplete';
 import { ColorPicker } from './color-picker';
 import { formatTime, formatDuration } from '@/lib/timer-utils';
 import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, ArrowUpDown, Trash2, Archive } from 'lucide-react';
@@ -36,6 +37,8 @@ interface ActiveSessionProps {
   onEditTask: (id: string, name: string, durationSeconds: number, color?: TaskColorId) => void;
   onReorder: (tasks: Task[]) => void;
   onOpenTaskBank: () => void;
+  isLoggedIn: boolean;
+  onAddFromBank: (picked: PickedBankTask[]) => void;
 }
 
 export function ActiveSession({
@@ -61,6 +64,8 @@ export function ActiveSession({
   onEditTask,
   onReorder,
   onOpenTaskBank,
+  isLoggedIn,
+  onAddFromBank,
 }: ActiveSessionProps) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newTaskName, setNewTaskName] = useState('');
@@ -299,12 +304,16 @@ export function ActiveSession({
             className="overflow-hidden"
           >
             <div className="glass-card rounded-2xl p-4 space-y-3" style={{ boxShadow: 'var(--shadow-md)' }}>
-              <Input
+              <TaskNameAutocomplete
+                value={newTaskName}
+                onChange={setNewTaskName}
+                onEnter={() => handleAdd('bottom')}
+                onSelect={onAddFromBank}
+                onSelected={() => { setShowAddForm(false); setShowPicker(false); }}
+                tasks={tasks}
+                isLoggedIn={isLoggedIn}
                 placeholder="Task name"
-                value={newTaskName ?? ''}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTaskName((e?.target?.value ?? '').slice(0, 100))}
                 className="bg-secondary/50 border-border"
-                maxLength={100}
               />
               <div className="flex items-center gap-3">
                 <ColorPicker value={newTaskColor} onChange={setNewTaskColor} size="sm" />

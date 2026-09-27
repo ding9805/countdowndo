@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Task, BankTask, Goal, PickedBankTask, SessionMode, TaskOrder, TaskColorId, TASK_COLORS, getTaskColorHex } from '@/lib/types';
-import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
+import { Task, PickedBankTask, SessionMode, TaskOrder, TaskColorId, TASK_COLORS, getTaskColorHex } from '@/lib/types';
+import { TaskNameAutocomplete } from './task-name-autocomplete';
 import { ColorPicker } from './color-picker';
 import { formatDuration } from '@/lib/timer-utils';
 import { TimePicker } from './time-picker';
@@ -57,10 +57,6 @@ export function TaskInputPanel({
   onAddFromBank,
 }: TaskInputPanelProps) {
   const [taskName, setTaskName] = useState('');
-  const [bankTasks, setBankTasks] = useState<BankTask[]>([]);
-  const [bankGoals, setBankGoals] = useState<Goal[]>([]);
-  const [showSuggestions, setShowSuggestions] = useState(false);
-  const [activeSuggestion, setActiveSuggestion] = useState(-1);
   const [duration, setDuration] = useState(300); // 5 min default
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -73,53 +69,6 @@ export function TaskInputPanel({
   const [startTimeCollapsed, setStartTimeCollapsed] = useState(false);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
-  const searchRequest = useRef(0);
-  const query = taskName.trim().toLocaleLowerCase();
-  const suggestions = query && isLoggedIn
-    ? bankTasks
-        .filter((task) => task.name.toLocaleLowerCase().includes(query))
-        .filter((task) => {
-          const queuedCount = (tasks ?? []).filter((queued) => queued.bankTaskId === task.id).length;
-          const goal = bankGoals.find((item) => item.bankTaskId === task.id);
-          if (goal) return queuedCount < remainingIntervals(goal);
-          return !task.isOneOff || queuedCount === 0;
-        })
-        .sort((a, b) => {
-          const aStarts = a.name.toLocaleLowerCase().startsWith(query);
-          const bStarts = b.name.toLocaleLowerCase().startsWith(query);
-          return Number(bStarts) - Number(aStarts) || a.name.localeCompare(b.name);
-        })
-        .slice(0, 8)
-    : [];
-
-  const loadBankSuggestions = async () => {
-    if (!isLoggedIn) return;
-    const request = ++searchRequest.current;
-    try {
-      const [tasksResponse, goalsResponse] = await Promise.all([
-        fetch('/api/task-bank'),
-        fetch('/api/goals'),
-      ]);
-      if (request !== searchRequest.current) return;
-      setBankTasks(tasksResponse.ok ? await tasksResponse.json() : []);
-      setBankGoals(goalsResponse.ok ? await goalsResponse.json() : []);
-    } catch {
-      if (request !== searchRequest.current) return;
-      setBankTasks([]);
-      setBankGoals([]);
-    }
-  };
-
-  const selectSuggestion = (task: BankTask) => {
-    const goal = bankGoals.find((item) => item.bankTaskId === task.id);
-    const alreadyQueued = (tasks ?? []).filter((queued) => queued.bankTaskId === task.id).length;
-    if (task.isOneOff && !goal && alreadyQueued > 0) return;
-    if (goal && alreadyQueued >= remainingIntervals(goal)) return;
-    onAddFromBank([{ bankTask: task, name: goal ? cursorTaskNameOffset(goal, alreadyQueued) : undefined }]);
-    setTaskName('');
-    setActiveSuggestion(-1);
-    setShowSuggestions(false);
-  };
   // Track known task IDs to prevent entrance animation flicker on existing tasks
   const knownTaskIds = useRef<Set<string>>(new Set((tasks ?? []).map((t: Task) => t?.id).filter(Boolean)));
   useEffect(() => {
@@ -135,24 +84,6 @@ export function TaskInputPanel({
     onAddTask?.(name, duration ?? 300, position, selectedColor);
     setTaskName('');
     setDuration(300);
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      setShowSuggestions(false);
-      setActiveSuggestion(-1);
-    } else if (showSuggestions && suggestions.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
-      e.preventDefault();
-      setActiveSuggestion((current) => e.key === 'ArrowDown'
-        ? (current + 1) % suggestions.length
-        : (current <= 0 ? suggestions.length - 1 : current - 1));
-    } else if (e.key === 'Enter') {
-      if (showSuggestions && activeSuggestion >= 0 && suggestions[activeSuggestion]) {
-        selectSuggestion(suggestions[activeSuggestion]);
-      } else {
-        handleAdd('bottom');
-      }
-    }
   };
 
   const isAsc = taskOrder === 'asc';
@@ -300,47 +231,16 @@ export function TaskInputPanel({
                 <div className="flex flex-col sm:flex-row gap-4 sm:items-start">
                   {/* Left: Task name + color picker + add buttons */}
                   <div className="flex-1 flex flex-col gap-3">
-                    <div className="relative" onBlur={(event) => {
-                      if (!event.currentTarget.contains(event.relatedTarget)) setShowSuggestions(false);
-                    }}>
-                      <Input
-                        placeholder="Task name (e.g., Brew coffee)"
-                        value={taskName ?? ''}
-                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
-                          setTaskName((e?.target?.value ?? '').slice(0, 100));
-                          setActiveSuggestion(-1);
-                          setShowSuggestions(true);
-                        }}
-                        onFocus={() => { setShowSuggestions(true); loadBankSuggestions(); }}
-                        onKeyDown={handleKeyDown}
-                        role="combobox"
-                        aria-autocomplete="list"
-                        aria-expanded={showSuggestions && suggestions.length > 0}
-                        aria-controls="task-bank-suggestions"
-                        aria-activedescendant={activeSuggestion >= 0 ? `task-bank-suggestion-${activeSuggestion}` : undefined}
-                        maxLength={100}
-                        className="bg-secondary/60 border-border/50 focus-visible:border-primary/50"
-                      />
-                      {showSuggestions && suggestions.length > 0 && (
-                        <div id="task-bank-suggestions" role="listbox" aria-label="Matching Task Bank tasks" className="absolute z-30 mt-1 w-full max-h-64 overflow-y-auto rounded-xl border border-border bg-background shadow-lg">
-                          {suggestions.map((task, index) => (
-                            <button
-                              key={task.id}
-                              id={`task-bank-suggestion-${index}`}
-                              type="button"
-                              role="option"
-                              aria-selected={activeSuggestion === index}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => selectSuggestion(task)}
-                              className={`flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-secondary/70 ${activeSuggestion === index ? 'bg-secondary/70' : ''}`}
-                            >
-                              <span className="min-w-0 truncate">{task.name}</span>
-                              <span className="shrink-0 text-xs text-muted-foreground">{formatDuration(task.durationSeconds)}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <TaskNameAutocomplete
+                      value={taskName}
+                      onChange={setTaskName}
+                      onEnter={() => handleAdd('bottom')}
+                      onSelect={onAddFromBank}
+                      tasks={tasks}
+                      isLoggedIn={isLoggedIn}
+                      placeholder="Task name (e.g., Brew coffee)"
+                      className="bg-secondary/60 border-border/50 focus-visible:border-primary/50"
+                    />
                     <ColorPicker value={selectedColor} onChange={setSelectedColor} />
                     <div className="flex items-center gap-3 flex-wrap">
                       <Button
