@@ -184,6 +184,8 @@ export function SequenceApp() {
                 onReorder={handleReorder}
                 onStartSession={handleStartSession}
                 onOpenTaskBank={() => setBankPickerOpen(true)}
+                isLoggedIn={isLoggedIn}
+                onAddFromBank={handleAddFromBank}
               />
             ) : (
               <ActiveSession
