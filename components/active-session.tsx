@@ -223,6 +223,9 @@ export function ActiveSession({
     onClearAll?.();
     setShowClearConfirm(false);
   };
+  // Clearing mid-session completes whatever isn't done yet (see the engine's
+  // handleClearAll), so the confirmation has to say so.
+  const unfinishedCount = (tasks ?? []).filter((t: Task) => !t?.isDone).length;
 
   return (
     <div className="space-y-6">
@@ -597,7 +600,13 @@ export function ActiveSession({
               style={{ boxShadow: 'var(--shadow-lg)' }}
             >
               <h3 className="font-display text-lg font-semibold text-foreground">Clear all tasks?</h3>
-              <p className="text-sm text-muted-foreground">This will delete all {(tasks?.length ?? 0)} task{(tasks?.length ?? 0) !== 1 ? 's' : ''} from the session. This action cannot be undone.</p>
+              <p className="text-sm text-muted-foreground">
+                This removes all {(tasks?.length ?? 0)} task{(tasks?.length ?? 0) !== 1 ? 's' : ''} from the session.
+                {unfinishedCount > 0 && (
+                  <> The {unfinishedCount} not done yet will be <span className="font-medium text-foreground">logged as completed</span>, the same as marking them done: added to your history and counted toward their goals.</>
+                )}
+                {' '}This action cannot be undone.
+              </p>
               <div className="flex gap-3 justify-end">
                 <Button
                   onClick={() => setShowClearConfirm(false)}
@@ -611,7 +620,7 @@ export function ActiveSession({
                   size="sm"
                   className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                 >
-                  Clear all
+                  {unfinishedCount > 0 ? 'Complete & clear' : 'Clear all'}
                 </Button>
               </div>
             </motion.div>

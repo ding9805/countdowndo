@@ -1156,6 +1156,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       // Log outside the updater — this creates a DB row, so it must fire exactly once.
       if (deletedTask && !deletedTask.isDone) {
         logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
+        // The remove buttons are icon-only, so say what just happened.
+        toast.success('Task logged as completed');
       }
       // Queue any bank task id for the session-end sweep, since the task is
       // leaving the list and won't be caught by the isDone scan at stop time.

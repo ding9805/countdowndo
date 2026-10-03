@@ -16,11 +16,13 @@
  *  - Un-marking a goal task rolls the goal back only if marking it done
  *    actually moved it — not for an extra copy marked done after the goal was
  *    complete — and that's saved with the task for other devices.
+ *  - Removing an unfinished task mid-session says it was logged as completed.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
  */
 
+import { toast } from 'sonner';
 import { useSessionEngine } from '@/hooks/use-session-engine';
 import type { BankTask } from '@/lib/types';
 
@@ -604,5 +606,16 @@ describe('un-marking a goal task', () => {
 
     expect(otherDevice.current.tasks[0].isDone).toBe(false);
     expect(goalSteps()).toEqual(['advance']);
+  });
+});
+
+describe('removing a task mid-session', () => {
+  test('says the task was logged as completed', async () => {
+    const engine = await startRunningSession();
+    (toast.success as jest.Mock).mockClear();
+
+    engine.current.handleDeleteTask(engine.current.tasks[0].id);
+
+    expect(toast.success).toHaveBeenCalledWith('Task logged as completed');
   });
 });

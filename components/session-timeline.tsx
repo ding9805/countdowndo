@@ -838,8 +838,8 @@ export function SessionTimeline({
                                 type="button"
                                 onClick={() => handleDelete(task.id)}
                                 className="rounded-lg bg-destructive/15 p-1.5 text-destructive transition-colors hover:bg-destructive/25"
-                                title="Remove task"
-                                aria-label="Remove task"
+                                title={isLive && !done ? 'Remove task (marks as done)' : 'Remove task'}
+                                aria-label={isLive && !done ? 'Remove task (marks as done)' : 'Remove task'}
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
