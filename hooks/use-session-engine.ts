@@ -12,6 +12,9 @@ const SAVE_DEBOUNCE = 1000;
 // non-409 error status). Matches the poll interval so a retry always lands
 // before the next poll could otherwise revert the unsaved change.
 const SAVE_RETRY_DELAY = 3000;
+// Browsers cap the bodies of a page's in-flight keepalive requests at 64 KiB;
+// a larger session payload goes without keepalive rather than failing.
+const KEEPALIVE_MAX_BYTES = 60_000;
 
 interface SessionPayload {
   tasks: Task[];
@@ -21,6 +24,17 @@ interface SessionPayload {
   soundPlayed: string[];
   sessionMode: SessionMode;
   sessionTotalSeconds: number;
+}
+
+// Fields a save request pins explicitly. Anything left undefined is read from
+// the latest state at the moment the save is built.
+interface SaveOverrides {
+  tasks?: Task[];
+  sessionState?: SessionState;
+  sessionStartMs?: number | null;
+  pausedElapsed?: number;
+  sessionMode?: SessionMode;
+  sessionTotalSeconds?: number;
 }
 
 function syncKey(p: {
@@ -56,9 +70,23 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const [taskOrder, setTaskOrder] = useState<TaskOrder>('desc');
   const [planningStartTime, setPlanningStartTime] = useState<string | null>(null);
 
+  // The session state as of the latest render. Saves are built from this when
+  // they're sent, not from the closure of the render that requested them: an
+  // async caller (the completion-log id attach) can run several renders
+  // later, and a snapshot captured back then would roll back whatever has
+  // happened since — a pause, a resume, an added task's envelope.
+  const latestState = { tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds };
+  const latestStateRef = useRef(latestState);
+  latestStateRef.current = latestState;
+
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const soundPlayedRef = useRef<Set<string>>(new Set());
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // What the debounced save waiting on saveTimeoutRef pins.
+  const pendingSaveRef = useRef<SaveOverrides>({});
+  // Set when the page is being hidden or unloaded, so the save flushed for it
+  // goes out with keepalive and survives the page going away.
+  const keepaliveNextSaveRef = useRef(false);
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
@@ -284,20 +312,29 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     isSavingRef.current = true;
     let failed = false;
     try {
+      const body = JSON.stringify({ ...payload, lastKnownUpdatedAt: lastKnownUpdatedAtRef.current });
+      const keepalive = keepaliveNextSaveRef.current && new TextEncoder().encode(body).length <= KEEPALIVE_MAX_BYTES;
+      keepaliveNextSaveRef.current = false;
       const res = await fetch('/api/active-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, lastKnownUpdatedAt: lastKnownUpdatedAtRef.current }),
+        body,
+        keepalive,
       });
       if (res.status === 409) {
         // Another device/tab saved since we last synced — adopt its state
         // instead of retrying this (now-stale) write over it.
         const conflictBody = await res.json().catch(() => null);
         if (conflictBody?.latest) {
-          // Anything queued behind this send was computed from the same
-          // pre-conflict local state, so it would overwrite the other device's
-          // change on the next send. Remote wins: drop it too.
+          // Anything queued behind this send, or still waiting on the
+          // debounce, was computed from the same pre-conflict local state, so
+          // it would overwrite the other device's change on the next send.
+          // Remote wins: drop it too.
           queuedPayloadRef.current = null;
+          if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+            saveTimeoutRef.current = null;
+          }
           applyRemoteSessionData(conflictBody.latest);
           toast.info('Synced with a more recent change from another device');
         }
@@ -349,24 +386,38 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     toast.dismiss('session-save-error');
   }, []);
 
+  // Overrides first, then the latest state — see latestStateRef.
+  const buildPayload = useCallback((overrides: SaveOverrides): SessionPayload => {
+    const latest = latestStateRef.current;
+    const startMs = overrides.sessionStartMs !== undefined ? overrides.sessionStartMs : latest.sessionStartTime;
+    return {
+      tasks: overrides.tasks ?? latest.tasks,
+      sessionState: overrides.sessionState ?? latest.sessionState,
+      sessionStartMs: startMs ?? Date.now(),
+      pausedElapsed: overrides.pausedElapsed ?? latest.pausedElapsed,
+      soundPlayed: Array.from(soundPlayedRef.current),
+      sessionMode: overrides.sessionMode ?? latest.sessionMode,
+      sessionTotalSeconds: overrides.sessionTotalSeconds ?? latest.sessionTotalSeconds,
+    };
+  }, []);
+
   const saveSessionToDb = useCallback((overrideTasks?: Task[], overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number, overrideMode?: SessionMode, overrideTotalSeconds?: number) => {
     if (!isLoggedIn) return; // Don't save for guests
     writeSeqRef.current += 1;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    pendingSaveRef.current = {
+      tasks: overrideTasks,
+      sessionState: overrideState,
+      sessionStartMs: overrideStartMs,
+      pausedElapsed: overridePausedElapsed,
+      sessionMode: overrideMode,
+      sessionTotalSeconds: overrideTotalSeconds,
+    };
     saveTimeoutRef.current = setTimeout(() => {
       saveTimeoutRef.current = null;
-      const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
-      enqueueSave({
-        tasks: overrideTasks ?? tasks,
-        sessionState: overrideState ?? sessionState,
-        sessionStartMs: currentStartMs ?? Date.now(),
-        pausedElapsed: overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed,
-        soundPlayed: Array.from(soundPlayedRef.current),
-        sessionMode: overrideMode ?? sessionMode,
-        sessionTotalSeconds: overrideTotalSeconds !== undefined ? overrideTotalSeconds : sessionTotalSeconds,
-      });
+      enqueueSave(buildPayload(pendingSaveRef.current));
     }, SAVE_DEBOUNCE);
-  }, [isLoggedIn, tasks, sessionState, sessionStartTime, pausedElapsed, sessionMode, sessionTotalSeconds, enqueueSave]);
+  }, [isLoggedIn, enqueueSave, buildPayload]);
 
   // Immediate save for critical operations (bypasses debounce)
   const saveSessionToDbImmediate = useCallback((overrideTasks: Task[], overrideTotalSeconds: number, overrideState?: SessionState, overrideStartMs?: number | null, overridePausedElapsed?: number) => {
@@ -374,17 +425,28 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     writeSeqRef.current += 1;
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     saveTimeoutRef.current = null;
-    const currentStartMs = overrideStartMs !== undefined ? overrideStartMs : sessionStartTime;
-    enqueueSave({
+    enqueueSave(buildPayload({
       tasks: overrideTasks,
-      sessionState: overrideState ?? sessionState,
-      sessionStartMs: currentStartMs ?? Date.now(),
-      pausedElapsed: overridePausedElapsed !== undefined ? overridePausedElapsed : pausedElapsed,
-      soundPlayed: Array.from(soundPlayedRef.current),
-      sessionMode: sessionMode,
+      sessionState: overrideState,
+      sessionStartMs: overrideStartMs,
+      pausedElapsed: overridePausedElapsed,
       sessionTotalSeconds: overrideTotalSeconds,
-    });
-  }, [isLoggedIn, sessionState, sessionStartTime, pausedElapsed, sessionMode, enqueueSave]);
+    }));
+  }, [isLoggedIn, enqueueSave, buildPayload]);
+
+  // Sends whatever is still waiting on a timer — the debounced save, or a
+  // retry after a failed send — now instead of when the timer fires.
+  const flushUnsentSave = useCallback(() => {
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+      enqueueSave(buildPayload(pendingSaveRef.current));
+    } else if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+      saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+    }
+  }, [enqueueSave, buildPayload, drainSaveQueue]);
 
   // Cancels unsent saves, waits for any in-flight one, then deletes the row —
   // so a save that was already on the wire can't land after the DELETE and
@@ -406,13 +468,33 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
   }, [isLoggedIn, cancelPendingSaves]);
 
-  // Clean up timers on unmount.
+  // Unmounting (an in-app navigation away from the session page) must not
+  // drop a save still waiting on its debounce: "mark done, then open Task
+  // Bank" would leave the task undone on the server, and marking it again
+  // logs it twice and advances its goal twice. The page keeps running, so the
+  // queue still finishes the request; a failed one keeps retrying.
+  useEffect(() => () => flushUnsentSave(), [flushUnsentSave]);
+
+  // Same when the page is hidden or unloaded, except nothing after this task
+  // is guaranteed to run there — the flushed save goes out with keepalive so
+  // the browser lets it finish after the page is gone. (A save already in
+  // flight can't be overtaken; the flushed one waits for it.)
   useEffect(() => {
-    return () => {
-      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    const flushForPageExit = () => {
+      if (!saveTimeoutRef.current && !retryTimeoutRef.current) return;
+      keepaliveNextSaveRef.current = true;
+      flushUnsentSave();
     };
-  }, []);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushForPageExit();
+    };
+    window.addEventListener('pagehide', flushForPageExit);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushForPageExit);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [flushUnsentSave]);
 
   // Timer tick
   useEffect(() => {
