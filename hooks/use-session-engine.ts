@@ -603,20 +603,32 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     return () => gestures.forEach((type) => window.removeEventListener(type, unlockTimerSound, true));
   }, [alarmEnabled]);
 
-  // Check for timer sound triggers
+  // Check for timer sound triggers. Deadlines that pass together (an overdue
+  // task pushed back to end with the task added ahead of it, or several that
+  // passed while the page was closed) share one chime.
   useEffect(() => {
     if (sessionState !== 'running') return;
-    (tasks ?? []).forEach((task: Task) => {
-      if (task?.isDone) return;
-      const remaining = getRemainingTime(task);
-      if (remaining <= 0 && !soundPlayedRef.current?.has(task?.id)) {
-        soundPlayedRef.current?.add(task?.id);
-        if (alarmEnabled) playTimerSound({ chime, volume: sessionVolume });
-        saveSessionToDb();
-      }
-    });
+    const due = (tasks ?? []).filter((task: Task) =>
+      !task?.isDone && getRemainingTime(task) <= 0 && !soundPlayedRef.current?.has(task?.id)
+    );
+    if (due.length === 0) return;
+    due.forEach((task: Task) => soundPlayedRef.current?.add(task?.id));
+    if (alarmEnabled) playTimerSound({ chime, volume: sessionVolume });
+    saveSessionToDb();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [elapsedSeconds, tasks, sessionState, alarmEnabled, chime, sessionVolume]);
+
+  // A task chimes once, when its deadline passes. An edit that moves the
+  // deadline back into the future (a longer duration, a later place in the
+  // list, a task added ahead of it) means it has to chime again when the new
+  // one passes.
+  const rearmChimes = (updated: Task[]) => {
+    updated.forEach((task: Task) => {
+      if (!task?.isDone && (task?.cumulativeSeconds ?? 0) > elapsedSeconds) {
+        soundPlayedRef.current?.delete(task.id);
+      }
+    });
+  };
 
   const handleStartSession = () => {
     if ((tasks?.length ?? 0) === 0) {
@@ -1032,6 +1044,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         };
         const { tasks: updated, envelopeSeconds: newTotalSeconds } =
           addTaskMidSession(list, newTask, position, elapsedSeconds, effectiveTotal);
+        rearmChimes(updated);
         setSessionTotalSeconds(newTotalSeconds);
         saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
         return updated;
@@ -1237,6 +1250,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         }
         // Adjust sessionTotalSeconds by the delta
         const newTotalSeconds = effectiveTotal + delta;
+        rearmChimes(updated);
         setSessionTotalSeconds(newTotalSeconds);
         saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
         return updated;
@@ -1278,6 +1292,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           setSessionTotalSeconds(effectiveEnvelopeSeconds);
         }
 
+        rearmChimes(updated);
         // Save immediately (bypass debounce to prevent race)
         saveSessionToDbImmediate(updated, effectiveEnvelopeSeconds);
         return updated;

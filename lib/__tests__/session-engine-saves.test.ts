@@ -19,6 +19,8 @@
  *  - Removing an unfinished task mid-session says it was logged as completed.
  *  - A task added mid-session is timed from now, not from the session's
  *    start, so it doesn't start out overdue and chime straight away.
+ *  - The chime goes off again for an overdue task whose deadline an edit
+ *    moves back into the future, once the new deadline passes.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
@@ -26,6 +28,7 @@
 
 import { toast } from 'sonner';
 import { useSessionEngine } from '@/hooks/use-session-engine';
+import { playTimerSound } from '@/lib/use-timer-sound';
 import type { BankTask } from '@/lib/types';
 
 jest.mock('react', () => ({
@@ -280,13 +283,18 @@ function otherDeviceSession(sessionState: 'running' | 'idle' = 'running') {
   };
 }
 
-const renderEngine = () => renderHook(() => useSessionEngine(true, false, 'double-beep', 0));
+const renderEngine = (alarmEnabled = false) =>
+  renderHook(() => useSessionEngine(true, alarmEnabled, 'double-beep', 0));
 
-// Logged in, with one 10-minute task staged, started, and saved as running.
-async function startRunningSession() {
-  const engine = renderEngine();
+// Logged in, with tasks (by default one 10-minute task) staged, started, and
+// saved as running.
+async function startRunningSession({
+  tasks = [['Write report', 600]] as [string, number][],
+  alarmEnabled = false,
+} = {}) {
+  const engine = renderEngine(alarmEnabled);
   await flushMicrotasks(); // initial load: no saved session yet
-  engine.current.handleAddTask('Write report', 600);
+  tasks.forEach(([name, seconds]) => engine.current.handleAddTask(name, seconds));
   await advance(1000);
   engine.current.handleStartSession();
   await advance(1000);
@@ -333,6 +341,7 @@ beforeEach(() => {
   heldGoalStepReplies = [];
   renderErrors = [];
   mockDocument.visibilityState = 'visible';
+  (playTimerSound as jest.Mock).mockClear();
 });
 
 afterEach(() => {
@@ -650,5 +659,48 @@ describe('adding a task mid-session', () => {
     const [, call, tidy] = engine.current.tasks;
     expect(engine.current.getRemainingTime(call)).toBe(300);
     expect(engine.current.getRemainingTime(tidy)).toBe(600);
+  });
+});
+
+describe('the timer chime', () => {
+  test('goes off again for an overdue task made longer, when its new deadline passes', async () => {
+    const engine = await startRunningSession({ alarmEnabled: true });
+    await advance(11 * 60_000); // the 10-minute task is a minute overdue
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+
+    engine.current.handleEditTask(engine.current.tasks[0].id, 'Write report', 15 * 60);
+    await advance(3 * 60_000);
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+    await advance(2 * 60_000); // past the new 15-minute deadline
+    expect(playTimerSound).toHaveBeenCalledTimes(2);
+  });
+
+  test('goes off again for an overdue task moved down the list, when its new deadline passes', async () => {
+    const engine = await startRunningSession({ tasks: [['Write report', 600], ['Email', 600]], alarmEnabled: true });
+    await advance(11 * 60_000); // the report is a minute overdue
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+
+    const [report, email] = engine.current.tasks;
+    engine.current.handleReorder([email, report]);
+    await advance(1000);
+    // The email takes over the report's slot, whose deadline has passed.
+    expect(playTimerSound).toHaveBeenCalledTimes(2);
+
+    await advance(9 * 60_000); // past the report's new deadline at 20 minutes
+    expect(playTimerSound).toHaveBeenCalledTimes(3);
+  });
+
+  test("a task added at the top of an overdue one doesn't chime at once, then one chime covers both", async () => {
+    const engine = await startRunningSession({ alarmEnabled: true });
+    await advance(11 * 60_000); // the 10-minute task is a minute overdue
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+
+    engine.current.handleAddTask('Call back', 300, 'top');
+    await advance(1000);
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+
+    // The overdue task now ends with the new one: their deadlines pass together.
+    await advance(5 * 60_000);
+    expect(playTimerSound).toHaveBeenCalledTimes(2);
   });
 });
