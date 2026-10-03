@@ -114,3 +114,24 @@ export function countQueuedBankCopies(tasks: Pick<Task, 'bankTaskId' | 'isDone'>
   });
   return counts;
 }
+
+// Undoing one optimistic change when its request fails. Each touches only the
+// row that change made, so whatever else happened while the request was out
+// (another row added, edited or deleted) stays as it is.
+
+// A failed create: take out its placeholder row.
+export function withoutRow<T extends { id: string }>(rows: T[], id: string): T[] {
+  return rows.filter((row) => row.id !== id);
+}
+
+// A failed edit: put the row back as it was, unless it has changed again since.
+export function revertRow<T extends { id: string }>(rows: T[], edited: T, original: T): T[] {
+  return rows.map((row) => (row === edited ? original : row));
+}
+
+// A failed delete: put the row back where it was, unless it's back already.
+export function restoreRow<T extends { id: string }>(rows: T[], removed: T, index: number): T[] {
+  if (rows.some((row) => row.id === removed.id)) return rows;
+  const at = Math.min(Math.max(index, 0), rows.length);
+  return [...rows.slice(0, at), removed, ...rows.slice(at)];
+}

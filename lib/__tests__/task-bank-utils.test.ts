@@ -1,4 +1,4 @@
-import { sortBankTasks, isOverdue, formatDueDate, dueDayDiff, countQueuedBankCopies } from '../task-bank-utils';
+import { sortBankTasks, isOverdue, formatDueDate, dueDayDiff, countQueuedBankCopies, withoutRow, revertRow, restoreRow } from '../task-bank-utils';
 import { cursorTaskNameOffset, remainingIntervals } from '../goal-utils';
 import { BankTask } from '../types';
 
@@ -209,5 +209,36 @@ describe('countQueuedBankCopies', () => {
 
     expect(queued).toBeLessThan(remainingIntervals(atNinety));
     expect(cursorTaskNameOffset(atNinety, queued)).toBe('Read: 90–100 pages');
+  });
+});
+
+// The Task Bank used to undo a failed request by restoring the whole list as
+// it was when the request started, undoing everything done in the meantime.
+describe('undoing one failed change to the Task Bank', () => {
+  const report = makeTask({ id: 'report', name: 'Write report' });
+  const email = makeTask({ id: 'email', name: 'Answer email' });
+
+  test('a failed add takes out only its own row, not one added after it', () => {
+    const placeholder = makeTask({ id: 'temp-1', name: 'Call back' });
+    // "Answer email" was added, and saved, while "Call back" was still going.
+    const rows = [email, placeholder, report];
+
+    expect(withoutRow(rows, 'temp-1')).toEqual([email, report]);
+  });
+
+  test('a failed edit puts back only that row, and not over a later change to it', () => {
+    const edited = { ...report, name: 'Write the report' };
+
+    expect(revertRow([email, edited], edited, report)).toEqual([email, report]);
+
+    const editedAgain = { ...report, name: 'Write report v3' };
+    expect(revertRow([email, editedAgain], edited, report)).toEqual([email, editedAgain]);
+  });
+
+  test('a failed delete puts the row back where it was, once', () => {
+    const rows = restoreRow([email], report, 1);
+
+    expect(rows).toEqual([email, report]);
+    expect(restoreRow(rows, report, 1)).toBe(rows);
   });
 });

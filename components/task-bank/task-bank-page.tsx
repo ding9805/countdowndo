@@ -14,7 +14,7 @@ import { PageToggle } from '@/components/page-toggle';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
-import { sortBankTasks, TASK_BANK_SORT_MODES } from '@/lib/task-bank-utils';
+import { restoreRow, revertRow, sortBankTasks, TASK_BANK_SORT_MODES, withoutRow } from '@/lib/task-bank-utils';
 
 export function TaskBankPage() {
   const { data: authSession, status: authStatus } = useSession() || {};
@@ -86,7 +86,8 @@ export function TaskBankPage() {
 
   const handleCreate = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
     // Optimistic create: insert a temp row immediately, swap in the server row
-    // on success, roll back on failure — same pattern as handleDelete below.
+    // on success. On failure only that row comes out, and the error goes back
+    // to the form, which then keeps what was typed instead of clearing it.
     const tempId = `temp-${Date.now()}`;
     const optimistic: BankTask = {
       id: tempId,
@@ -99,33 +100,31 @@ export function TaskBankPage() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const prev = tasks;
     setTasks((p) => [optimistic, ...p]);
-    void (async () => {
-      try {
-        const res = await fetch('/api/task-bank', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
-        const created = await res.json();
-        setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
-        toast.success('Task added to bank');
-      } catch (e: any) {
-        setTasks(prev);
-        toast.error(e?.message ?? 'Something went wrong');
-      }
-    })();
+    try {
+      const res = await fetch('/api/task-bank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
+      const created = await res.json();
+      setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
+      toast.success('Task added to bank');
+    } catch (e: any) {
+      setTasks((p) => withoutRow(p, tempId));
+      toast.error(e?.message ?? 'Something went wrong');
+      throw e;
+    }
   };
 
   const handleEdit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
     if (!editingTask) return;
     // Optimistic edit: patch the row in place immediately, close the dialog,
-    // replace with the server row on success, roll back on failure.
-    const prev = tasks;
-    const optimistic: BankTask = { ...editingTask, ...data };
-    setTasks((p) => p.map((t) => (t.id === editingTask.id ? optimistic : t)));
+    // replace with the server row on success, put the row back on failure.
+    const original = tasks.find((t) => t.id === editingTask.id) ?? editingTask;
+    const optimistic: BankTask = { ...original, ...data };
+    setTasks((p) => p.map((t) => (t.id === original.id ? optimistic : t)));
     void (async () => {
       try {
         const res = await fetch(`/api/task-bank/${editingTask.id}`, {
@@ -138,21 +137,23 @@ export function TaskBankPage() {
         setTasks((p) => p.map((t) => (t.id === updated.id ? updated : t)));
         toast.success('Task updated');
       } catch (e: any) {
-        setTasks(prev);
+        setTasks((p) => revertRow(p, optimistic, original));
         toast.error(e?.message ?? 'Something went wrong');
       }
     })();
   };
 
   const handleDelete = async (id: string) => {
-    const prev = tasks;
+    const index = tasks.findIndex((t) => t.id === id);
+    const removed = tasks[index];
+    if (!removed) return;
     setTasks((p) => p.filter((t) => t.id !== id));
     try {
       const res = await fetch(`/api/task-bank/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       toast.success('Task deleted');
     } catch {
-      setTasks(prev);
+      setTasks((p) => restoreRow(p, removed, index));
       toast.error('Failed to delete task');
     }
   };
@@ -168,28 +169,26 @@ export function TaskBankPage() {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
-    const prev = templates;
+    // Same as handleCreate: the editor stays open with its input on failure.
     setTemplates((p) => [optimistic, ...p]);
-    void (async () => {
-      try {
-        const res = await fetch('/api/task-bank/templates', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create template');
-        const created = await res.json();
-        setTemplates((p) => p.map((t) => (t.id === tempId ? created : t)));
-        toast.success('Template created');
-      } catch (e: any) {
-        setTemplates(prev);
-        toast.error(e?.message ?? 'Something went wrong');
-      }
-    })();
+    try {
+      const res = await fetch('/api/task-bank/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create template');
+      const created = await res.json();
+      setTemplates((p) => p.map((t) => (t.id === tempId ? created : t)));
+      toast.success('Template created');
+    } catch (e: any) {
+      setTemplates((p) => withoutRow(p, tempId));
+      toast.error(e?.message ?? 'Something went wrong');
+      throw e;
+    }
   };
 
   const handleUpdateTemplate = async (id: string, data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => {
-    const prev = templates;
     const existing = templates.find((t) => t.id === id);
     if (!existing) return;
     const optimistic: BankTaskTemplate = { ...existing, ...data };
@@ -206,21 +205,23 @@ export function TaskBankPage() {
         setTemplates((p) => p.map((t) => (t.id === updated.id ? updated : t)));
         toast.success('Template updated');
       } catch (e: any) {
-        setTemplates(prev);
+        setTemplates((p) => revertRow(p, optimistic, existing));
         toast.error(e?.message ?? 'Something went wrong');
       }
     })();
   };
 
   const handleDeleteTemplate = async (id: string) => {
-    const prev = templates;
+    const index = templates.findIndex((t) => t.id === id);
+    const removed = templates[index];
+    if (!removed) return;
     setTemplates((p) => p.filter((t) => t.id !== id));
     try {
       const res = await fetch(`/api/task-bank/templates/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
       toast.success('Template deleted');
     } catch {
-      setTemplates(prev);
+      setTemplates((p) => restoreRow(p, removed, index));
       toast.error('Failed to delete template');
     }
   };

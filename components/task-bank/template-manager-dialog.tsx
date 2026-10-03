@@ -66,6 +66,8 @@ export function TemplateManagerDialog({ open, onOpenChange, templates, existingT
         await onUpdate(editing.id, { name: trimmed, durationSeconds, color, tags: finalTags });
       }
       setEditing(null);
+    } catch {
+      // The page has already said what went wrong; keep the editor open.
     } finally {
       setSubmitting(false);
     }

@@ -94,6 +94,9 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
       } else {
         onOpenChange(false);
       }
+    } catch {
+      // The page has already said what went wrong. Keep what was typed so it
+      // can be sent again.
     } finally {
       setSubmitting(false);
     }
