@@ -8,6 +8,10 @@
  *    engine unmounts or the page is hidden or unloaded.
  *  - After a 409, a debounced save built from pre-conflict state is dropped
  *    instead of overwriting the session just adopted from the other device.
+ *  - Saves only replace the server's version they were built on: a client
+ *    that hasn't loaded the session (a failed or slow first load, or one that
+ *    loaded none) can't overwrite one that exists, and a device that missed
+ *    a Stop doesn't bring the session back.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
@@ -157,8 +161,11 @@ let sessionRow: any = null;
 let rowVersion = 0;
 let sentRequests: SentRequest[] = [];
 let heldLogReplies: ((logId: string) => void)[] = [];
-let holdSessionPosts = false;
+// Methods whose /api/active-session replies are held until a test releases
+// them, in order, from heldSessionReplies.
+let heldMethods = new Set<string>();
 let heldSessionReplies: (() => void)[] = [];
+let failingGets = 0;
 
 const reply = (status: number, body: unknown) => ({
   ok: status >= 200 && status < 300,
@@ -171,16 +178,23 @@ function nextUpdatedAt(): string {
   return new Date(Date.UTC(2026, 9, 1) + rowVersion * 1000).toISOString();
 }
 
-// Mirrors app/api/active-session: GET returns the row, DELETE removes it, POST
-// upserts it after the same optimistic-concurrency check.
+// Mirrors app/api/active-session: GET returns the row, DELETE removes it, and
+// POST writes it only over the version the client last saw (or creates it if
+// the client has seen none), otherwise answering 409 with the latest row.
 function handleSessionRequest(method: string, body: any) {
-  if (method === 'GET') return reply(200, sessionRow);
+  if (method === 'GET') {
+    if (failingGets > 0) {
+      failingGets -= 1;
+      return reply(500, { error: 'Failed to fetch session' });
+    }
+    return reply(200, sessionRow);
+  }
   if (method === 'DELETE') {
     sessionRow = null;
     return reply(200, { success: true });
   }
   const { lastKnownUpdatedAt, ...data } = body;
-  if (lastKnownUpdatedAt && sessionRow && Date.parse(sessionRow.updatedAt) > Date.parse(lastKnownUpdatedAt)) {
+  if ((sessionRow?.updatedAt ?? null) !== (lastKnownUpdatedAt ?? null)) {
     return reply(409, { error: 'Session was updated elsewhere', conflict: true, latest: sessionRow });
   }
   sessionRow = { ...data, updatedAt: nextUpdatedAt() };
@@ -194,7 +208,7 @@ const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
 
   if (url === '/api/active-session') {
     const response = handleSessionRequest(method, body);
-    if (method === 'POST' && holdSessionPosts) {
+    if (heldMethods.has(method)) {
       return new Promise<ReturnType<typeof reply>>((resolve) => heldSessionReplies.push(() => resolve(response)));
     }
     return response;
@@ -218,9 +232,36 @@ const lastSessionPost = () => {
   return posts[posts.length - 1];
 };
 
+const taskNames = (tasks: { name: string }[]) => tasks.map((task) => task.name);
+
+// A session saved by another device: one 15-minute task, running (or staged).
+function otherDeviceSession(sessionState: 'running' | 'idle' = 'running') {
+  return {
+    tasks: [{
+      id: 'phone-task',
+      name: 'Read chapter 3',
+      durationSeconds: 900,
+      cumulativeSeconds: 900,
+      isDone: false,
+      doneAt: null,
+      bonusSeconds: 0,
+      color: 'blue',
+    }],
+    sessionState,
+    sessionStartMs: Date.now(),
+    pausedElapsed: 0,
+    soundPlayed: [],
+    sessionMode: 'continuous',
+    sessionTotalSeconds: 900,
+    updatedAt: nextUpdatedAt(),
+  };
+}
+
+const renderEngine = () => renderHook(() => useSessionEngine(true, false, 'double-beep', 0));
+
 // Logged in, with one 10-minute task staged, started, and saved as running.
 async function startRunningSession() {
-  const engine = renderHook(() => useSessionEngine(true, false, 'double-beep', 0));
+  const engine = renderEngine();
   await flushMicrotasks(); // initial load: no saved session yet
   engine.current.handleAddTask('Write report', 600);
   await advance(1000);
@@ -237,8 +278,9 @@ beforeEach(() => {
   rowVersion = 0;
   sentRequests = [];
   heldLogReplies = [];
-  holdSessionPosts = false;
+  heldMethods = new Set();
   heldSessionReplies = [];
+  failingGets = 0;
   renderErrors = [];
   mockDocument.visibilityState = 'visible';
 });
@@ -335,19 +377,120 @@ describe('a 409 conflict', () => {
       updatedAt: nextUpdatedAt(),
     };
 
-    holdSessionPosts = true;
+    heldMethods.add('POST');
     engine.current.handleEditTask(taskId, 'Edit A', 600);
     await advance(1000); // edit A is sent and answered 409, but the reply is held
     engine.current.handleEditTask(taskId, 'Edit B', 600); // debounced behind it
     await flushMicrotasks();
     const postsBefore = sessionPosts().length;
 
-    holdSessionPosts = false;
+    heldMethods.delete('POST');
     heldSessionReplies.shift()!();
     await advance(1500);
 
     expect(sessionPosts()).toHaveLength(postsBefore);
     expect(engine.current.tasks[0].name).toBe('Renamed on phone');
     expect(sessionRow.tasks[0].name).toBe('Renamed on phone');
+  });
+});
+
+describe('a save the server has no matching version for', () => {
+  test('a failed first load is retried until the session shows up', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {});
+    sessionRow = otherDeviceSession();
+    failingGets = 1;
+
+    const engine = renderEngine();
+    await flushMicrotasks();
+    expect(engine.current.tasks).toEqual([]);
+
+    await advance(3000);
+
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+    expect(sessionPosts()).toHaveLength(0);
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    consoleError.mockRestore();
+  });
+
+  test('an edit made while the first load is out does not overwrite the session it loads', async () => {
+    sessionRow = otherDeviceSession();
+    heldMethods.add('GET');
+    const engine = renderEngine();
+    await flushMicrotasks();
+
+    engine.current.handleAddTask('Added before the load', 300);
+    heldMethods.delete('GET');
+    heldSessionReplies.shift()!();
+    await advance(1000);
+
+    expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3']);
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a device that loaded no session adopts one started elsewhere instead of overwriting it', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks(); // nothing saved yet
+    sessionRow = otherDeviceSession(); // then the phone starts a session
+
+    engine.current.handleAddTask('Staged on laptop', 300);
+    await advance(1000);
+
+    expect(lastSessionPost().body.lastKnownUpdatedAt).toBeNull();
+    expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3']);
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a device that missed a Stop goes idle instead of bringing the session back', async () => {
+    const engine = await startRunningSession();
+    sessionRow = null; // stopped on another device with everything done
+
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await advance(1000);
+
+    expect(lastSessionPost().body.lastKnownUpdatedAt).not.toBeNull();
+    expect(engine.current.sessionState).toBe('idle');
+    expect(engine.current.tasks).toEqual([]);
+    await advance(6000);
+    expect(sessionRow).toBeNull();
+  });
+
+  test('a list staged before another device ran and stopped it can still be started', async () => {
+    sessionRow = otherDeviceSession('idle');
+    const engine = renderEngine();
+    await flushMicrotasks();
+    sessionRow = null; // the phone started this list, then stopped it
+
+    engine.current.handleStartSession();
+    await advance(1000);
+
+    const [rejected, created] = sessionPosts().slice(-2);
+    expect(rejected.body.lastKnownUpdatedAt).not.toBeNull();
+    expect(created.body.lastKnownUpdatedAt).toBeNull();
+    expect(sessionRow).toMatchObject({ sessionState: 'running' });
+    expect(engine.current.sessionState).toBe('running');
+  });
+
+  test('a save made right after Stop waits for the DELETE, then creates a new session', async () => {
+    const engine = await startRunningSession();
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await flushMicrotasks();
+    heldMethods.add('DELETE');
+    engine.current.handleStop(); // nothing left, so the row is deleted
+    await flushMicrotasks();
+
+    engine.current.handleAddTask('Next thing', 300);
+    const postsBefore = sessionPosts().length;
+    await advance(1000);
+    expect(sessionPosts()).toHaveLength(postsBefore);
+
+    heldMethods.delete('DELETE');
+    heldSessionReplies.shift()!();
+    await flushMicrotasks();
+
+    expect(sessionPosts()).toHaveLength(postsBefore + 1);
+    expect(lastSessionPost().body.lastKnownUpdatedAt).toBeNull();
+    expect(taskNames(sessionRow.tasks)).toEqual(['Next thing']);
   });
 });

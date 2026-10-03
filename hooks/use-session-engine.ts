@@ -12,6 +12,9 @@ const SAVE_DEBOUNCE = 1000;
 // non-409 error status). Matches the poll interval so a retry always lands
 // before the next poll could otherwise revert the unsaved change.
 const SAVE_RETRY_DELAY = 3000;
+// How long to wait before retrying a first load that failed — see
+// loadActiveSession for why it has to be retried at all.
+const LOAD_RETRY_DELAY = 3000;
 // Browsers cap the bodies of a page's in-flight keepalive requests at 64 KiB;
 // a larger session payload goes without keepalive rather than failing.
 const KEEPALIVE_MAX_BYTES = 60_000;
@@ -113,10 +116,12 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const writeSeqRef = useRef(0);
   const sessionSavedToDbRef = useRef(false);
   // The updatedAt of the ActiveSession row this client last saw. Sent on every
-  // save so the server can detect a write from another device/tab that
-  // happened in between — see the 409 handling in saveSessionToDb.
+  // save so the server only accepts it over that exact version — see the 409
+  // handling in drainSaveQueue. Null when this client knows of no row, which
+  // the server only lets a save create.
   const lastKnownUpdatedAtRef = useRef<string | null>(null);
   const initialLoadDone = useRef(false);
+  const loadRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Bank task ids that should be swept at session end. In continuous mode a
   // task can be removed mid-session (logged as done but filtered out of the
   // list), so it wouldn't be caught by a simple "isDone" scan at stop time.
@@ -150,6 +155,12 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     } else {
       initialLoadDone.current = true;
     }
+    return () => {
+      if (loadRetryTimeoutRef.current) {
+        clearTimeout(loadRetryTimeoutRef.current);
+        loadRetryTimeoutRef.current = null;
+      }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
@@ -215,20 +226,66 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     sessionSavedToDbRef.current = data.sessionState === 'running' || data.sessionState === 'paused';
   }, []);
 
+  // Another device stopped the session this one was in (its row is gone).
+  // Mirror handleStop's local cleanup: drop the done tasks and reset the
+  // envelope, otherwise the next idle edit here re-saves the stale done list
+  // as a staged session and undoes the stop on the device that issued it.
+  const applyRemoteSessionEnded = useCallback(() => {
+    sessionEpochRef.current += 1;
+    setSessionState('idle');
+    setSessionStartTime(null);
+    setPausedElapsed(0);
+    setElapsedSeconds(0);
+    setTasks((prev: Task[]) => {
+      const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
+      const reset = recalculateCumulativeTimes(
+        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+      );
+      setSessionTotalSeconds(reset.length > 0 ? reset[reset.length - 1].cumulativeSeconds : 0);
+      return reset;
+    });
+    soundPlayedRef.current = new Set();
+    sessionSavedToDbRef.current = false;
+    lastKnownUpdatedAtRef.current = null;
+    lastSyncRef.current = '';
+  }, []);
+
+  // Local writes win over anything a GET response could be carrying — see
+  // shouldApplyPolledSession. Without this, a poll racing "Clear all"
+  // reloads the pre-clear task list and the cleared tasks come back.
+  const canApplyFetchedSession = (seqAtStart: number, data: any) =>
+    shouldApplyPolledSession({
+      writeSeqAtStart: seqAtStart,
+      writeSeqNow: writeSeqRef.current,
+      savePending: saveTimeoutRef.current !== null || queuedPayloadRef.current !== null || retryTimeoutRef.current !== null,
+      saving: isSavingRef.current,
+      responseUpdatedAt: data?.updatedAt ?? null,
+      lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
+    });
+
+  // Retried until it gets an answer. Until then this client doesn't know the
+  // server's version of the session, so the server only lets its saves create
+  // one, and an idle client never polls — without the retry, a session that
+  // exists wouldn't show up here until the next edit bounced off it.
   const loadActiveSession = async () => {
+    loadRetryTimeoutRef.current = null;
+    const seqAtStart = writeSeqRef.current;
     try {
       const res = await fetch('/api/active-session');
+      if (res.status >= 500) throw new Error(`Load failed with ${res.status}`);
       if (!res.ok) return;
       const data = await res.json();
-      if (!data) {
-        initialLoadDone.current = true;
-        return;
-      }
-      applyRemoteSessionData(data);
       initialLoadDone.current = true;
+      // An edit made while this was out has its own save on the way, built
+      // from the state before the load. That save settles with the server by
+      // itself (a 409 hands back the session to adopt), but only if this
+      // response isn't applied first: then it would carry the loaded version
+      // and overwrite the session with the pre-load task list.
+      if (!data || !canApplyFetchedSession(seqAtStart, data)) return;
+      applyRemoteSessionData(data);
     } catch (e: any) {
       console.error('Failed to load active session:', e);
-      initialLoadDone.current = true;
+      loadRetryTimeoutRef.current = setTimeout(loadActiveSession, LOAD_RETRY_DELAY);
     }
   };
 
@@ -239,43 +296,11 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       const res = await fetch('/api/active-session');
       if (!res.ok) return;
       const data = await res.json();
-      // Local writes win over anything this response could be carrying — see
-      // shouldApplyPolledSession. Without this, a poll racing "Clear all"
-      // reloads the pre-clear task list and the cleared tasks come back.
-      if (!shouldApplyPolledSession({
-        writeSeqAtStart: seqAtStart,
-        writeSeqNow: writeSeqRef.current,
-        savePending: saveTimeoutRef.current !== null || queuedPayloadRef.current !== null || retryTimeoutRef.current !== null,
-        saving: isSavingRef.current,
-        responseUpdatedAt: data?.updatedAt ?? null,
-        lastKnownUpdatedAt: lastKnownUpdatedAtRef.current,
-      })) return;
+      if (!canApplyFetchedSession(seqAtStart, data)) return;
       if (!data) {
         // Only reset to idle if we previously confirmed the session was saved to DB.
         // If save never succeeded (e.g. API error), don't kill the local session.
-        if (sessionSavedToDbRef.current) {
-          // Another device stopped the session. Mirror handleStop's local
-          // cleanup: drop the done tasks and reset the envelope, otherwise the
-          // next idle edit here re-saves the stale done list as a staged
-          // session and undoes the stop on the device that issued it.
-          sessionEpochRef.current += 1;
-          setSessionState('idle');
-          setSessionStartTime(null);
-          setPausedElapsed(0);
-          setElapsedSeconds(0);
-          setTasks((prev: Task[]) => {
-            const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
-            const reset = recalculateCumulativeTimes(
-              remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
-            );
-            setSessionTotalSeconds(reset.length > 0 ? reset[reset.length - 1].cumulativeSeconds : 0);
-            return reset;
-          });
-          soundPlayedRef.current = new Set();
-          sessionSavedToDbRef.current = false;
-          lastKnownUpdatedAtRef.current = null;
-          lastSyncRef.current = '';
-        }
+        if (sessionSavedToDbRef.current) applyRemoteSessionEnded();
         return;
       }
 
@@ -322,10 +347,14 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         keepalive,
       });
       if (res.status === 409) {
-        // Another device/tab saved since we last synced — adopt its state
-        // instead of retrying this (now-stale) write over it.
         const conflictBody = await res.json().catch(() => null);
-        if (conflictBody?.latest) {
+        const latest = conflictBody?.latest ?? null;
+        if (!conflictBody?.conflict) {
+          failed = true;
+        } else if (latest || (sessionSavedToDbRef.current && payload.sessionState !== 'idle')) {
+          // Another device/tab saved since we last synced (`latest`), or
+          // stopped the session this device was in and deleted its row —
+          // adopt that instead of retrying this (now-stale) write over it.
           // Anything queued behind this send, or still waiting on the
           // debounce, was computed from the same pre-conflict local state, so
           // it would overwrite the other device's change on the next send.
@@ -335,8 +364,23 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
           }
-          applyRemoteSessionData(conflictBody.latest);
-          toast.info('Synced with a more recent change from another device');
+          if (latest) {
+            applyRemoteSessionData(latest);
+            toast.info('Synced with a more recent change from another device');
+          } else {
+            applyRemoteSessionEnded();
+            toast.info('This session was stopped on another device');
+          }
+        } else {
+          // The row is gone, but this save was never part of the session
+          // that was stopped — e.g. a list staged here before another device
+          // ran and stopped it. There's nothing left to defer to, so save it
+          // again as a new session.
+          lastKnownUpdatedAtRef.current = null;
+          if (!queuedPayloadRef.current) {
+            queuedPayloadRef.current = payload;
+            saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+          }
         }
       } else if (res.ok) {
         const saved = await res.json().catch(() => null);
@@ -364,7 +408,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       }, SAVE_RETRY_DELAY);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applyRemoteSessionData]);
+  }, [applyRemoteSessionData, applyRemoteSessionEnded]);
 
   const enqueueSave = useCallback((payload: SessionPayload) => {
     queuedPayloadRef.current = payload;
@@ -448,24 +492,33 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
   }, [enqueueSave, buildPayload, drainSaveQueue]);
 
-  // Cancels unsent saves, waits for any in-flight one, then deletes the row —
-  // so a save that was already on the wire can't land after the DELETE and
-  // resurrect the session.
+  // Cancels unsent saves, then deletes the row from inside the save chain:
+  // after any save already on the wire, so that one can't land after the
+  // DELETE and resurrect the session, and before any save made from here on,
+  // so that one knows the row is gone and creates a new one rather than
+  // being rejected for carrying the deleted row's version.
   const deleteSessionFromDb = useCallback(async () => {
     if (!isLoggedIn) return;
     writeSeqRef.current += 1;
     cancelPendingSaves();
-    await saveChainRef.current.catch(() => {});
-    try {
-      isSavingRef.current = true;
-      await fetch('/api/active-session', { method: 'DELETE' });
-      lastKnownUpdatedAtRef.current = null;
-      lastSyncRef.current = '';
-    } catch (e: any) {
-      console.error('Failed to delete session:', e);
-    } finally {
-      isSavingRef.current = false;
-    }
+    const deletion = saveChainRef.current.then(async () => {
+      try {
+        isSavingRef.current = true;
+        const res = await fetch('/api/active-session', { method: 'DELETE' });
+        // If the DELETE failed the row is still there, at the version we
+        // know, and the next save simply overwrites it.
+        if (res.ok) {
+          lastKnownUpdatedAtRef.current = null;
+          lastSyncRef.current = '';
+        }
+      } catch (e: any) {
+        console.error('Failed to delete session:', e);
+      } finally {
+        isSavingRef.current = false;
+      }
+    });
+    saveChainRef.current = deletion;
+    await deletion;
   }, [isLoggedIn, cancelPendingSaves]);
 
   // Unmounting (an in-app navigation away from the session page) must not

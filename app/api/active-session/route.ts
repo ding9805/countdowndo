@@ -49,29 +49,40 @@ export async function POST(req: NextRequest) {
     }
     const { lastKnownUpdatedAt, ...data } = parsed.data;
 
-    // Optimistic concurrency: if this client last saw the row at some point,
-    // and the row has since been updated more recently than that (another
-    // device/tab wrote in between), reject instead of silently clobbering
-    // that write with a full-state overwrite computed from stale data.
+    // Optimistic concurrency. A save is a full-state overwrite computed from
+    // the version of the row this client last saw, so it may only replace
+    // that exact version, and a client that has seen no row may only create
+    // one. Anything else — another device/tab wrote in between, or a Stop
+    // deleted the row — means the client is working from stale state, so
+    // reject with the latest row (null if gone) for it to adopt. The version
+    // check is part of the write itself: checking first and writing second
+    // would let two concurrent saves both pass and the later one clobber
+    // the earlier.
+    let active;
     if (lastKnownUpdatedAt) {
-      const existing = await prisma.activeSession.findUnique({
-        where: { userId },
-        select: { updatedAt: true },
+      active = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.activeSession.updateMany({
+          where: { userId, updatedAt: new Date(lastKnownUpdatedAt) },
+          data,
+        });
+        // Read back in the same transaction, which still holds the row lock
+        // from the update, so this returns our write and not a later one.
+        return count === 1 ? tx.activeSession.findUnique({ where: { userId } }) : null;
       });
-      if (existing && existing.updatedAt.getTime() > new Date(lastKnownUpdatedAt).getTime()) {
-        const latest = await prisma.activeSession.findUnique({ where: { userId } });
-        return NextResponse.json(
-          { error: 'Session was updated elsewhere', conflict: true, latest },
-          { status: 409 }
-        );
-      }
+    } else {
+      active = await prisma.activeSession.create({ data: { userId, ...data } }).catch((error) => {
+        if (error?.code === 'P2002') return null; // a row already exists
+        throw error;
+      });
     }
 
-    const active = await prisma.activeSession.upsert({
-      where: { userId },
-      create: { userId, ...data },
-      update: data,
-    });
+    if (!active) {
+      const latest = await prisma.activeSession.findUnique({ where: { userId } });
+      return NextResponse.json(
+        { error: 'Session was updated elsewhere', conflict: true, latest },
+        { status: 409 }
+      );
+    }
 
     return NextResponse.json(active);
   } catch (error: any) {
