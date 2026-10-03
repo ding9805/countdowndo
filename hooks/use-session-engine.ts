@@ -29,6 +29,14 @@ interface SessionPayload {
   sessionTotalSeconds: number;
 }
 
+// What a Stop that leaves no tasks queues in place of a save: the end of the
+// session, sent as a DELETE. `retry` marks a resend after a failure, which
+// only deletes the version of the session this device last saw.
+interface SessionDeletion {
+  deleteSession: true;
+  retry: boolean;
+}
+
 // Fields a save request pins explicitly. Anything left undefined is read from
 // the latest state at the moment the save is built.
 interface SaveOverrides {
@@ -93,12 +101,13 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const syncIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const lastSyncRef = useRef<string>('');
   const isSavingRef = useRef(false);
-  // Saves are full-state snapshots, so only the newest one queued matters.
-  // Sends are serialized through saveChainRef so a second save never leaves
-  // while the first is in flight: it would carry the first save's (now stale)
+  // Saves are full-state snapshots, so only the newest one queued matters; a
+  // Stop's delete of the row queues the same way, as the empty one. Sends are
+  // serialized through saveChainRef so a second save never leaves while the
+  // first is in flight: it would carry the first save's (now stale)
   // lastKnownUpdatedAt, get a 409 from our own write, and roll local state
   // back to the first payload. A failed send stays queued and is retried.
-  const queuedPayloadRef = useRef<SessionPayload | null>(null);
+  const queuedPayloadRef = useRef<SessionPayload | SessionDeletion | null>(null);
   const saveChainRef = useRef<Promise<void>>(Promise.resolve());
   const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Bumped by handleStop (and a cross-device stop seen by the poll) so async
@@ -341,62 +350,97 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     isSavingRef.current = true;
     let failed = false;
     try {
-      const body = JSON.stringify({ ...payload, lastKnownUpdatedAt: lastKnownUpdatedAtRef.current });
-      const keepalive = keepaliveNextSaveRef.current && new TextEncoder().encode(body).length <= KEEPALIVE_MAX_BYTES;
-      keepaliveNextSaveRef.current = false;
-      const res = await fetch('/api/active-session', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        keepalive,
-      });
-      if (res.status === 409) {
-        const conflictBody = await res.json().catch(() => null);
-        const latest = conflictBody?.latest ?? null;
-        if (!conflictBody?.conflict) {
-          failed = true;
-        } else if (latest || (sessionSavedToDbRef.current && payload.sessionState !== 'idle')) {
-          // Another device/tab saved since we last synced (`latest`), or
-          // stopped the session this device was in and deleted its row —
-          // adopt that instead of retrying this (now-stale) write over it.
-          // Anything queued behind this send, or still waiting on the
-          // debounce, was computed from the same pre-conflict local state, so
-          // it would overwrite the other device's change on the next send.
-          // Remote wins: drop it too.
+      if ('deleteSession' in payload) {
+        // A retry only deletes the version this device last saw: by the time
+        // one gets through, the session may have changed on another device,
+        // or been stopped there and a new one started. Knowing no version,
+        // there's no row of this device's left to delete.
+        const version = payload.retry ? lastKnownUpdatedAtRef.current : null;
+        if (payload.retry && !version) {
+          toast.dismiss('session-save-error');
+          return;
+        }
+        const keepalive = keepaliveNextSaveRef.current;
+        keepaliveNextSaveRef.current = false;
+        const query = version ? `?lastKnownUpdatedAt=${encodeURIComponent(version)}` : '';
+        const res = await fetch(`/api/active-session${query}`, { method: 'DELETE', keepalive });
+        const conflict = res.status === 409 ? await res.json().catch(() => null) : null;
+        if (res.ok) {
+          lastKnownUpdatedAtRef.current = null;
+          lastSyncRef.current = '';
+          toast.dismiss('session-save-error');
+        } else if (conflict?.latest) {
+          // Changed on another device while the Stop couldn't get through:
+          // that wins, as it does over a save, along with dropping anything
+          // made here since from the state it replaces.
           queuedPayloadRef.current = null;
           if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = null;
           }
-          if (latest) {
-            applyRemoteSessionData(latest);
-            toast.info('Synced with a more recent change from another device');
-          } else {
-            applyRemoteSessionEnded();
-            toast.info('This session was stopped on another device');
-          }
+          applyRemoteSessionData(conflict.latest);
+          toast.info('Synced with a more recent change from another device');
         } else {
-          // The row is gone, but this save was never part of the session
-          // that was stopped — e.g. a list staged here before another device
-          // ran and stopped it. There's nothing left to defer to, so save it
-          // again as a new session.
-          lastKnownUpdatedAtRef.current = null;
-          if (!queuedPayloadRef.current) {
-            queuedPayloadRef.current = payload;
-            saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
-          }
+          failed = true;
         }
-      } else if (res.ok) {
-        const saved = await res.json().catch(() => null);
-        if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
-        lastSyncRef.current = syncKey(payload);
-        sessionSavedToDbRef.current = true;
-        toast.dismiss('session-save-error');
       } else {
-        failed = true;
+        const body = JSON.stringify({ ...payload, lastKnownUpdatedAt: lastKnownUpdatedAtRef.current });
+        const keepalive = keepaliveNextSaveRef.current && new TextEncoder().encode(body).length <= KEEPALIVE_MAX_BYTES;
+        keepaliveNextSaveRef.current = false;
+        const res = await fetch('/api/active-session', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+          keepalive,
+        });
+        if (res.status === 409) {
+          const conflictBody = await res.json().catch(() => null);
+          const latest = conflictBody?.latest ?? null;
+          if (!conflictBody?.conflict) {
+            failed = true;
+          } else if (latest || (sessionSavedToDbRef.current && payload.sessionState !== 'idle')) {
+            // Another device/tab saved since we last synced (`latest`), or
+            // stopped the session this device was in and deleted its row —
+            // adopt that instead of retrying this (now-stale) write over it.
+            // Anything queued behind this send, or still waiting on the
+            // debounce, was computed from the same pre-conflict local state, so
+            // it would overwrite the other device's change on the next send.
+            // Remote wins: drop it too.
+            queuedPayloadRef.current = null;
+            if (saveTimeoutRef.current) {
+              clearTimeout(saveTimeoutRef.current);
+              saveTimeoutRef.current = null;
+            }
+            if (latest) {
+              applyRemoteSessionData(latest);
+              toast.info('Synced with a more recent change from another device');
+            } else {
+              applyRemoteSessionEnded();
+              toast.info('This session was stopped on another device');
+            }
+          } else {
+            // The row is gone, but this save was never part of the session
+            // that was stopped — e.g. a list staged here before another device
+            // ran and stopped it. There's nothing left to defer to, so save it
+            // again as a new session.
+            lastKnownUpdatedAtRef.current = null;
+            if (!queuedPayloadRef.current) {
+              queuedPayloadRef.current = payload;
+              saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+            }
+          }
+        } else if (res.ok) {
+          const saved = await res.json().catch(() => null);
+          if (saved?.updatedAt) lastKnownUpdatedAtRef.current = saved.updatedAt;
+          lastSyncRef.current = syncKey(payload);
+          sessionSavedToDbRef.current = true;
+          toast.dismiss('session-save-error');
+        } else {
+          failed = true;
+        }
       }
     } catch (e: any) {
-      console.error('Failed to save session:', e);
+      console.error('deleteSession' in payload ? 'Failed to end session:' : 'Failed to save session:', e);
       failed = true;
     } finally {
       isSavingRef.current = false;
@@ -404,8 +448,12 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     if (failed && !queuedPayloadRef.current) {
       // Keep the unsent payload queued (so the poll guard treats local state
       // as authoritative rather than reverting it) and try again shortly.
-      queuedPayloadRef.current = payload;
-      toast.error("Couldn't save your session — retrying", { id: 'session-save-error' });
+      const deleting = 'deleteSession' in payload;
+      queuedPayloadRef.current = deleting ? { deleteSession: true, retry: true } : payload;
+      toast.error(
+        deleting ? "Couldn't end your session — retrying" : "Couldn't save your session — retrying",
+        { id: 'session-save-error' }
+      );
       retryTimeoutRef.current = setTimeout(() => {
         retryTimeoutRef.current = null;
         saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
@@ -414,7 +462,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyRemoteSessionData, applyRemoteSessionEnded]);
 
-  const enqueueSave = useCallback((payload: SessionPayload) => {
+  const enqueueSave = useCallback((payload: SessionPayload | SessionDeletion) => {
     queuedPayloadRef.current = payload;
     saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
   }, [drainSaveQueue]);
@@ -496,34 +544,20 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
   }, [enqueueSave, buildPayload, drainSaveQueue]);
 
-  // Cancels unsent saves, then deletes the row from inside the save chain:
-  // after any save already on the wire, so that one can't land after the
-  // DELETE and resurrect the session, and before any save made from here on,
-  // so that one knows the row is gone and creates a new one rather than
-  // being rejected for carrying the deleted row's version.
-  const deleteSessionFromDb = useCallback(async () => {
+  // Cancels unsent saves, then deletes the row through the save queue: after
+  // any save already on the wire, so that one can't land after the DELETE and
+  // resurrect the session, and before any save made from here on, so that
+  // one knows the row is gone and creates a new one rather than being
+  // rejected for carrying the deleted row's version. A failed DELETE is
+  // retried like a failed save: the row left behind would bring the stopped
+  // session back on reload and keep it running on other devices. A save made
+  // meanwhile takes its place, since it overwrites that row anyway.
+  const deleteSessionFromDb = useCallback(() => {
     if (!isLoggedIn) return;
     writeSeqRef.current += 1;
     cancelPendingSaves();
-    const deletion = saveChainRef.current.then(async () => {
-      try {
-        isSavingRef.current = true;
-        const res = await fetch('/api/active-session', { method: 'DELETE' });
-        // If the DELETE failed the row is still there, at the version we
-        // know, and the next save simply overwrites it.
-        if (res.ok) {
-          lastKnownUpdatedAtRef.current = null;
-          lastSyncRef.current = '';
-        }
-      } catch (e: any) {
-        console.error('Failed to delete session:', e);
-      } finally {
-        isSavingRef.current = false;
-      }
-    });
-    saveChainRef.current = deletion;
-    await deletion;
-  }, [isLoggedIn, cancelPendingSaves]);
+    enqueueSave({ deleteSession: true, retry: false });
+  }, [isLoggedIn, cancelPendingSaves, enqueueSave]);
 
   // Unmounting (an in-app navigation away from the session page) must not
   // drop a save still waiting on its debounce: "mark done, then open Task

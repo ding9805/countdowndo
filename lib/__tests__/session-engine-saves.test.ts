@@ -21,6 +21,9 @@
  *    start, so it doesn't start out overdue and chime straight away.
  *  - The chime goes off again for an overdue task whose deadline an edit
  *    moves back into the future, once the new deadline passes.
+ *  - A Stop whose DELETE fails keeps retrying until the session is gone, but
+ *    a retry never ends a session changed or restarted on another device
+ *    meanwhile, or deletes a list staged here since.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
@@ -178,6 +181,7 @@ let heldLogReplies: ((logId: string) => void)[] = [];
 let heldMethods = new Set<string>();
 let heldSessionReplies: (() => void)[] = [];
 let failingGets = 0;
+let failingDeletes = 0;
 // Whether a goal advance moves its goal (it doesn't once the goal is
 // complete), and whether /api/goals/step replies are held for a test to
 // release from heldGoalStepReplies.
@@ -196,10 +200,11 @@ function nextUpdatedAt(): string {
   return new Date(Date.UTC(2026, 9, 1) + rowVersion * 1000).toISOString();
 }
 
-// Mirrors app/api/active-session: GET returns the row, DELETE removes it, and
-// POST writes it only over the version the client last saw (or creates it if
-// the client has seen none), otherwise answering 409 with the latest row.
-function handleSessionRequest(method: string, body: any) {
+// Mirrors app/api/active-session: GET returns the row, DELETE removes it (a
+// retry only the version it names), and POST writes it only over the version
+// the client last saw (or creates it if the client has seen none), otherwise
+// answering 409 with the latest row.
+function handleSessionRequest(method: string, body: any, url: string) {
   if (method === 'GET') {
     if (failingGets > 0) {
       failingGets -= 1;
@@ -208,6 +213,14 @@ function handleSessionRequest(method: string, body: any) {
     return reply(200, sessionRow);
   }
   if (method === 'DELETE') {
+    if (failingDeletes > 0) {
+      failingDeletes -= 1;
+      return reply(500, { error: 'Failed to delete session' });
+    }
+    const version = new URL(url, 'http://localhost').searchParams.get('lastKnownUpdatedAt');
+    if (version && sessionRow && sessionRow.updatedAt !== version) {
+      return reply(409, { error: 'Session was updated elsewhere', conflict: true, latest: sessionRow });
+    }
     sessionRow = null;
     return reply(200, { success: true });
   }
@@ -224,8 +237,8 @@ const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
   const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
   sentRequests.push({ url, method, body, keepalive: init.keepalive });
 
-  if (url === '/api/active-session') {
-    const response = handleSessionRequest(method, body);
+  if (url.split('?')[0] === '/api/active-session') {
+    const response = handleSessionRequest(method, body, url);
     if (heldMethods.has(method)) {
       return new Promise<ReturnType<typeof reply>>((resolve) => heldSessionReplies.push(() => resolve(response)));
     }
@@ -252,6 +265,7 @@ const mockDocument = Object.assign(new EventTarget(), { visibilityState: 'visibl
 Object.assign(globalThis, { window: mockWindow, document: mockDocument, fetch: mockFetch });
 
 const sessionPosts = () => sentRequests.filter((r) => r.url === '/api/active-session' && r.method === 'POST');
+const sessionDeletes = () => sentRequests.filter((r) => r.url.split('?')[0] === '/api/active-session' && r.method === 'DELETE');
 const lastSessionPost = () => {
   const posts = sessionPosts();
   return posts[posts.length - 1];
@@ -336,6 +350,7 @@ beforeEach(() => {
   heldMethods = new Set();
   heldSessionReplies = [];
   failingGets = 0;
+  failingDeletes = 0;
   advanceMovesGoal = true;
   holdGoalSteps = false;
   heldGoalStepReplies = [];
@@ -702,5 +717,54 @@ describe('the timer chime', () => {
     // The overdue task now ends with the new one: their deadlines pass together.
     await advance(5 * 60_000);
     expect(playTimerSound).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a Stop the server fails to carry out', () => {
+  // Logged in, with the session's only task done and saved, so Stop deletes
+  // the session; the first `failures` DELETEs fail.
+  async function stopWithFailingDeletes(failures: number) {
+    const engine = await startRunningSession();
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await advance(1000);
+    failingDeletes = failures;
+    engine.current.handleStop();
+    await flushMicrotasks();
+    return engine;
+  }
+
+  test('is retried, saying so, until the session is gone', async () => {
+    (toast.error as jest.Mock).mockClear();
+    await stopWithFailingDeletes(2);
+    expect(sessionRow).not.toBeNull();
+    expect(toast.error).toHaveBeenCalledWith("Couldn't end your session — retrying", { id: 'session-save-error' });
+
+    await advance(6000); // two retries, three seconds apart
+
+    expect(sessionDeletes()).toHaveLength(3);
+    expect(sessionRow).toBeNull();
+    expect(toast.dismiss).toHaveBeenLastCalledWith('session-save-error');
+  });
+
+  test('a retry doesn’t end a new session started on another device meanwhile, and switches to it', async () => {
+    const engine = await stopWithFailingDeletes(1);
+    sessionRow = otherDeviceSession(); // the phone stopped it too, then started another
+
+    await advance(3000);
+
+    expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3']);
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a list staged here while it retries replaces the stopped session instead of being deleted', async () => {
+    const engine = await stopWithFailingDeletes(1);
+
+    engine.current.handleAddTask('Next thing', 300);
+    await advance(6000);
+
+    expect(sessionDeletes()).toHaveLength(1);
+    expect(sessionRow).toMatchObject({ sessionState: 'idle' });
+    expect(taskNames(sessionRow.tasks)).toEqual(['Next thing']);
   });
 });

@@ -7,9 +7,12 @@
  * may only create one, a client whose row was deleted (a Stop elsewhere) may
  * not bring it back, and two concurrent saves built on the same version can't
  * both win.
+ *
+ * Ending the session (DELETE) gets the same check when a client retries a
+ * Stop that failed, since by then the session may have changed elsewhere.
  */
 
-import { POST } from '@/app/api/active-session/route';
+import { DELETE, POST } from '@/app/api/active-session/route';
 
 type Row = Record<string, any>;
 
@@ -40,6 +43,14 @@ const mockPrisma = {
       const row = { id: `session-${clock}`, ...data, createdAt: now, updatedAt: now };
       rows.push(row);
       return copy(row);
+    },
+    deleteMany: async ({ where }: any) => {
+      await roundTrip();
+      const hits = rows.filter(
+        (row) => row.userId === where.userId && (!where.updatedAt || row.updatedAt.getTime() === where.updatedAt.getTime())
+      );
+      rows = rows.filter((row) => !hits.includes(row));
+      return { count: hits.length };
     },
     updateMany: async ({ where, data }: any) => {
       await roundTrip();
@@ -92,6 +103,12 @@ async function save(taskName: string, lastKnownUpdatedAt: string | null) {
     body: JSON.stringify(sessionPayload(taskName, lastKnownUpdatedAt)),
   });
   const res = await POST(req as any);
+  return { status: res.status, body: await res.json() };
+}
+
+async function stop(lastKnownUpdatedAt?: string) {
+  const query = lastKnownUpdatedAt ? `?lastKnownUpdatedAt=${encodeURIComponent(lastKnownUpdatedAt)}` : '';
+  const res = await DELETE(new Request(`http://localhost/api/active-session${query}`, { method: 'DELETE' }) as any);
   return { status: res.status, body: await res.json() };
 }
 
@@ -170,5 +187,45 @@ describe('POST /api/active-session', () => {
 
     expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
     expect(rows).toHaveLength(1);
+  });
+});
+
+describe('DELETE /api/active-session', () => {
+  test('a Stop ends the session', async () => {
+    await save('Write report', null);
+
+    const res = await stop();
+
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(0);
+  });
+
+  test('a retried Stop ends the version it last saw', async () => {
+    const first = await save('Write report', null);
+
+    const res = await stop(first.body.updatedAt);
+
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(0);
+  });
+
+  test('a retried Stop leaves a session changed since, and returns it', async () => {
+    const first = await save('Write report', null);
+    await save('Renamed on phone', first.body.updatedAt);
+
+    const res = await stop(first.body.updatedAt);
+
+    expect(res.status).toBe(409);
+    expect(res.body.latest.tasks[0].name).toBe('Renamed on phone');
+    expect(savedTaskNames()).toEqual(['Renamed on phone']);
+  });
+
+  test('a retried Stop of a session that is already gone succeeds', async () => {
+    const first = await save('Write report', null);
+    rows = []; // the first attempt did get through
+
+    const res = await stop(first.body.updatedAt);
+
+    expect(res.status).toBe(200);
   });
 });

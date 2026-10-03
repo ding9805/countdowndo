@@ -91,14 +91,35 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// DELETE: End the active session
-export async function DELETE() {
+// DELETE: End the active session. A Stop that's being retried passes the
+// version of the row it last saw, and only that version is deleted: by the
+// time a retry gets through, the session may have changed on another device,
+// or been stopped there and a new one started. It then gets the same 409 and
+// latest row as a save would.
+export async function DELETE(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     const userId = (session.user as any).id;
+
+    const lastKnownUpdatedAt = new URL(req.url).searchParams.get('lastKnownUpdatedAt');
+    if (lastKnownUpdatedAt) {
+      const version = new Date(lastKnownUpdatedAt);
+      if (Number.isNaN(version.getTime())) {
+        return NextResponse.json({ error: 'Invalid lastKnownUpdatedAt' }, { status: 400 });
+      }
+      const { count } = await prisma.activeSession.deleteMany({ where: { userId, updatedAt: version } });
+      const latest = count === 0 ? await prisma.activeSession.findUnique({ where: { userId } }) : null;
+      if (latest) {
+        return NextResponse.json(
+          { error: 'Session was updated elsewhere', conflict: true, latest },
+          { status: 409 }
+        );
+      }
+      return NextResponse.json({ success: true });
+    }
 
     await prisma.activeSession.deleteMany({ where: { userId } });
     return NextResponse.json({ success: true });
