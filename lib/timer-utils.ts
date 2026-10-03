@@ -39,6 +39,40 @@ export function recalculateCumulativeTimesWithEnvelope(
   return { tasks: updated, effectiveEnvelopeSeconds: effectiveEnvelope };
 }
 
+/**
+ * Add a task to a continuous session that's under way.
+ *
+ * 'top' means do it next: it goes just below the tasks already done, which
+ * stay where they are as a record (same as Move to top), and 'bottom' after
+ * everything, at the session's end. Either way it starts where the task
+ * before it ends, or now if that's already past, so it never starts out
+ * overdue. The tasks after it move back by its duration, and any whose
+ * deadline had already passed moves to its end, so deadlines stay in order.
+ */
+export function addTaskMidSession(
+  tasks: Task[],
+  task: Task,
+  position: 'top' | 'bottom',
+  elapsedSeconds: number,
+  envelopeSeconds: number
+): { tasks: Task[]; envelopeSeconds: number } {
+  const list = tasks ?? [];
+  const firstNotDone = list.findIndex((t: Task) => !t?.isDone);
+  const index = position === 'top' && firstNotDone >= 0 ? firstNotDone : list.length;
+  const previousEnd = index === list.length
+    ? envelopeSeconds
+    : (list[index - 1]?.cumulativeSeconds ?? 0);
+  const start = Math.max(elapsedSeconds, previousEnd);
+  const duration = task?.durationSeconds ?? 0;
+  const later = list.slice(index).map((t: Task) => (
+    { ...(t ?? {}), cumulativeSeconds: Math.max(t?.cumulativeSeconds ?? 0, start) + duration } as Task
+  ));
+  return {
+    tasks: [...list.slice(0, index), { ...task, cumulativeSeconds: start + duration }, ...later],
+    envelopeSeconds: Math.max(envelopeSeconds, start) + duration,
+  };
+}
+
 export function formatTime(totalSeconds: number): string {
   const abs = Math.abs(totalSeconds ?? 0);
   const hours = Math.floor(abs / 3600);

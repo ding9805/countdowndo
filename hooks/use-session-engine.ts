@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask } from '@/lib/types';
-import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
+import { addTaskMidSession, generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
 import { playTimerSound, unlockTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { shouldApplyPolledSession } from '@/lib/session-sync';
@@ -1009,49 +1009,32 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       const list = prev ?? [];
 
       if (isActiveContinuous) {
-        // In continuous mode: insert without recalculating existing tasks.
+        // In continuous mode: insert into the running timeline rather than
+        // recalculating it from zero.
         // Guard: derive effectiveTotal if sessionTotalSeconds is 0
         let effectiveTotal = sessionTotalSeconds;
         if (effectiveTotal <= 0 && list.length > 0) {
           effectiveTotal = list[list.length - 1]?.cumulativeSeconds ?? 0;
         }
 
-        if (position === 'top') {
-          // Prepend and recalculate all cumulative times while preserving the
-          // continuous session envelope, so existing deadlines don't collapse
-          // toward zero mid-session.
-          const newTask: Task = {
-            id: generateId(),
-            name,
-            durationSeconds,
-            cumulativeSeconds: 0,
-            isDone: false,
-            doneAt: null,
-            bonusSeconds: 0,
-            color,
-          };
-          const newTotalSeconds = effectiveTotal + durationSeconds;
-          const { tasks: updated } = recalculateCumulativeTimesWithEnvelope([newTask, ...list], newTotalSeconds);
-          setSessionTotalSeconds(newTotalSeconds);
-          saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
-          return updated;
-        } else {
-          const newTask: Task = {
-            id: generateId(),
-            name,
-            durationSeconds,
-            cumulativeSeconds: effectiveTotal + durationSeconds,
-            isDone: false,
-            doneAt: null,
-            bonusSeconds: 0,
-            color,
-          };
-          const updated = [...list, newTask];
-          const newTotalSeconds = effectiveTotal + durationSeconds;
-          setSessionTotalSeconds(newTotalSeconds);
-          saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
-          return updated;
-        }
+        // Timed from now rather than from the session's start, so the new
+        // task gets its full duration and the ones it goes ahead of keep what
+        // they had left — see addTaskMidSession.
+        const newTask: Task = {
+          id: generateId(),
+          name,
+          durationSeconds,
+          cumulativeSeconds: 0,
+          isDone: false,
+          doneAt: null,
+          bonusSeconds: 0,
+          color,
+        };
+        const { tasks: updated, envelopeSeconds: newTotalSeconds } =
+          addTaskMidSession(list, newTask, position, elapsedSeconds, effectiveTotal);
+        setSessionTotalSeconds(newTotalSeconds);
+        saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
+        return updated;
       } else {
         // Idle: full recalculation
         const newTask: Task = {
@@ -1094,7 +1077,9 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         if (effectiveTotal <= 0 && list.length > 0) {
           effectiveTotal = list[list.length - 1]?.cumulativeSeconds ?? 0;
         }
-        let running = effectiveTotal;
+        // From the session's end, or from now if the session has run over,
+        // so the added tasks don't start out overdue.
+        let running = Math.max(effectiveTotal, elapsedSeconds);
         const newTasks: Task[] = picked.map((p) => {
           const bt = p.bankTask;
           running += bt.durationSeconds;

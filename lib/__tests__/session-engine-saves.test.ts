@@ -17,6 +17,8 @@
  *    actually moved it — not for an extra copy marked done after the goal was
  *    complete — and that's saved with the task for other devices.
  *  - Removing an unfinished task mid-session says it was logged as completed.
+ *  - A task added mid-session is timed from now, not from the session's
+ *    start, so it doesn't start out overdue and chime straight away.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
@@ -617,5 +619,36 @@ describe('removing a task mid-session', () => {
     engine.current.handleDeleteTask(engine.current.tasks[0].id);
 
     expect(toast.success).toHaveBeenCalledWith('Task logged as completed');
+  });
+});
+
+describe('adding a task mid-session', () => {
+  test('Add to Top gives it its full time from now, and the task it goes ahead of keeps what it had left', async () => {
+    const engine = await startRunningSession(); // a 10-minute task
+    await advance(4 * 60_000);
+    const reportLeft = engine.current.getRemainingTime(engine.current.tasks[0]);
+
+    engine.current.handleAddTask('Call back', 300, 'top');
+    await flushMicrotasks();
+
+    const [call, report] = engine.current.tasks;
+    expect(call.name).toBe('Call back');
+    expect(engine.current.getRemainingTime(call)).toBe(300);
+    expect(engine.current.getRemainingTime(report)).toBe(reportLeft + 300);
+    expect(engine.current.sessionTotalSeconds).toBe(900);
+  });
+
+  test('once the session has run over, Add to Bottom and Task Bank adds start now instead of overdue', async () => {
+    const engine = await startRunningSession(); // a 10-minute task
+    await advance(16 * 60_000); // six minutes over
+
+    engine.current.handleAddTask('Call back', 300);
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([{ bankTask: { ...goalCursor, id: 'bank-1', name: 'Tidy desk', durationSeconds: 300 } }]);
+    await flushMicrotasks();
+
+    const [, call, tidy] = engine.current.tasks;
+    expect(engine.current.getRemainingTime(call)).toBe(300);
+    expect(engine.current.getRemainingTime(tidy)).toBe(600);
   });
 });
