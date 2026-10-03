@@ -8,6 +8,7 @@ import { Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SIGN_IN_WINDOW_MINUTES, TOO_MANY_SIGN_IN_ATTEMPTS } from '@/lib/auth-errors';
 
 export default function LoginPage() {
   const [isSignup, setIsSignup] = useState(false);
@@ -55,7 +56,11 @@ export default function LoginPage() {
           redirect: false,
         });
         if (result?.error) {
-          setError('Invalid email or password');
+          setError(
+            result.error === TOO_MANY_SIGN_IN_ATTEMPTS
+              ? `Too many sign-in attempts. Please try again in ${SIGN_IN_WINDOW_MINUTES} minutes.`
+              : 'Invalid email or password'
+          );
           setLoading(false);
           return;
         }
