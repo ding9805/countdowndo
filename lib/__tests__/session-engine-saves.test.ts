@@ -34,7 +34,7 @@ jest.mock('sonner', () => ({
   toast: Object.assign(jest.fn(), { success: jest.fn(), info: jest.fn(), error: jest.fn(), dismiss: jest.fn() }),
 }));
 jest.mock('@/lib/celebrate', () => ({ celebrate: jest.fn() }));
-jest.mock('@/lib/use-timer-sound', () => ({ playTimerSound: jest.fn() }));
+jest.mock('@/lib/use-timer-sound', () => ({ playTimerSound: jest.fn(), unlockTimerSound: jest.fn() }));
 
 // ── Minimal hooks runtime ────────────────────────────────────────────────
 // Re-renders after state changes (batched into a microtask) and runs effects

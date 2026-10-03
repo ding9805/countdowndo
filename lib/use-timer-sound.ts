@@ -216,22 +216,70 @@ const CHIME_SOUNDS: Record<TimerChime, SoundScheduler> = {
   ]),
 };
 
+// One audio context for the page, kept open between chimes. Browsers only let
+// a context start from inside a user gesture (iOS Safari strictly so), and
+// chimes go off from a timer, so a context made on the spot for each chime
+// never starts there. This one is started by a tap — see unlockTimerSound.
+let sharedAudioContext: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextConstructor) return null;
+    sharedAudioContext = new AudioContextConstructor();
+  }
+  return sharedAudioContext;
+}
+
+// Lets later chimes play. Only works when called from a tap, click or key
+// press handler, the one moment a browser lets the context start.
+export function unlockTimerSound() {
+  try {
+    const audioContext = getAudioContext();
+    if (!audioContext || audioContext.state === 'running') return;
+    audioContext.resume().catch(() => {});
+    // Older iOS versions also want a sound started within the gesture.
+    const silence = audioContext.createBufferSource();
+    silence.buffer = audioContext.createBuffer(1, 1, audioContext.sampleRate);
+    silence.connect(audioContext.destination);
+    silence.start();
+  } catch (e: any) {
+    console.error('Audio unlock failed:', e);
+  }
+}
+
+// A chime asked for while the context can't play (nothing tapped since the
+// page loaded) is dropped rather than held: it would go off whenever the page
+// is next tapped, on top of every other chime missed in between.
+const STALE_CHIME_MS = 1000;
+
 export function playTimerSound({ chime = 'double-beep', volume = 0.3 }: { chime?: TimerChime; volume?: number } = {}) {
   try {
     if (volume <= 0) return;
-    const AudioContextConstructor = window.AudioContext || (window as any).webkitAudioContext;
-    const audioContext = new AudioContextConstructor();
-    const now = audioContext.currentTime;
-    const masterGain = audioContext.createGain();
-    const gain = Math.min(1, Math.max(0, volume));
+    const audioContext = getAudioContext();
+    if (!audioContext) return;
     const schedule = CHIME_SOUNDS[chime] ?? CHIME_SOUNDS['double-beep'];
 
-    masterGain.gain.setValueAtTime(gain, now);
-    masterGain.connect(audioContext.destination);
-    const duration = schedule(audioContext, masterGain, now);
+    const play = () => {
+      const now = audioContext.currentTime;
+      const masterGain = audioContext.createGain();
+      masterGain.gain.setValueAtTime(Math.min(1, Math.max(0, volume)), now);
+      masterGain.connect(audioContext.destination);
+      const duration = schedule(audioContext, masterGain, now);
+      // Detach this chime from the shared context once its last note ends.
+      window.setTimeout(() => masterGain.disconnect(), (duration + 0.2) * 1000);
+    };
 
-    // Release the short-lived context after the last scheduled note finishes.
-    window.setTimeout(() => { void audioContext.close(); }, (duration + 0.2) * 1000);
+    if (audioContext.state === 'running') {
+      play();
+    } else {
+      // Suspended, e.g. while the tab was in the background. Resuming works
+      // without a gesture once the page has been interacted with.
+      const requestedAt = Date.now();
+      audioContext.resume()
+        .then(() => { if (Date.now() - requestedAt < STALE_CHIME_MS) play(); })
+        .catch(() => {});
+    }
   } catch (e: any) {
     console.error('Audio playback failed:', e);
   }

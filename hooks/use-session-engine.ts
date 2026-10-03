@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask } from '@/lib/types';
 import { generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
-import { playTimerSound, TimerChime } from '@/lib/use-timer-sound';
+import { playTimerSound, unlockTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
 import { shouldApplyPolledSession } from '@/lib/session-sync';
 import { toast } from 'sonner';
@@ -591,6 +591,17 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const progress = Math.max(0, Math.min(1, 1 - taskElapsed / duration));
     return progress;
   }, [elapsedSeconds]);
+
+  // Chimes go off from a timer, and browsers only let audio start from a user
+  // gesture, so every tap, click or key press while the alarm is on unlocks
+  // it. The Start click covers a fresh session; after a reload the session
+  // carries on without one, and the chime stays silent until the next tap.
+  useEffect(() => {
+    if (!alarmEnabled) return;
+    const gestures = ['pointerup', 'touchend', 'click', 'keydown'];
+    gestures.forEach((type) => window.addEventListener(type, unlockTimerSound, true));
+    return () => gestures.forEach((type) => window.removeEventListener(type, unlockTimerSound, true));
+  }, [alarmEnabled]);
 
   // Check for timer sound triggers
   useEffect(() => {
