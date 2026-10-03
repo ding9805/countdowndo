@@ -14,12 +14,13 @@ interface GoalCardProps {
   onDuplicate: (goal: Goal) => void;
   onDelete: (id: string) => void;
   onSetCurrentValue: (goal: Goal, value: number) => void;
-  onRegenerate: (id: string) => void;
+  onRegenerate: (id: string) => Promise<void> | void;
 }
 
 export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressInput, setProgressInput] = useState('');
+  const [regenerating, setRegenerating] = useState(false);
 
   const complete = isGoalComplete(goal);
   const progress = goalProgress(goal);
@@ -29,6 +30,16 @@ export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValu
   const startProgressEdit = () => {
     setProgressInput(String(goal.currentValue));
     setEditingProgress(true);
+  };
+
+  // One request at a time, so a double-click can't ask for two tasks.
+  const regenerate = async () => {
+    setRegenerating(true);
+    try {
+      await onRegenerate(goal.id);
+    } finally {
+      setRegenerating(false);
+    }
   };
 
   const commitProgressEdit = () => {
@@ -166,8 +177,9 @@ export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValu
           <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
           <span className="flex-1">Its task was removed from the Task Bank.</span>
           <button
-            onClick={() => onRegenerate(goal.id)}
-            className="inline-flex items-center gap-1 font-medium hover:underline"
+            onClick={regenerate}
+            disabled={regenerating}
+            className="inline-flex items-center gap-1 font-medium hover:underline disabled:opacity-50 disabled:no-underline"
           >
             <RefreshCw className="w-3 h-3" />
             Regenerate
