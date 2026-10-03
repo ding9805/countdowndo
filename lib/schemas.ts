@@ -34,6 +34,7 @@ export const taskSchema = z.object({
   bonusSeconds: z.number().finite(),
   color: taskColorSchema,
   completionLogId: z.string().nullable().optional(),
+  goalAdvanced: z.boolean().nullable().optional(),
   bankTaskId: z.string().nullable().optional(),
   isOneOffBankTask: z.boolean().optional(),
 });

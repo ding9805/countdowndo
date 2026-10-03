@@ -6,6 +6,10 @@
  * bankTaskId, so the recreated cursor has to keep that id — otherwise marking
  * the task done again matches no goal and the goal silently stays one chunk
  * short of its target.
+ *
+ * The route also reports whether a step moved the goal at all, so the session
+ * engine only rolls back steps that happened: un-marking an extra copy that
+ * was marked done after the goal was complete must not un-complete it.
  */
 
 import { POST } from '@/app/api/goals/step/route';
@@ -27,7 +31,10 @@ function matches(row: Row, where: Row): boolean {
 // the two in-memory tables above.
 const mockTx = {
   goal: {
-    findFirst: async ({ where }: any) => goals.find((goal) => matches(goal, where)) ?? null,
+    findFirst: async ({ where }: any) => {
+      const goal = goals.find((g) => matches(g, where));
+      return goal ? { ...goal } : null;
+    },
     update: async ({ where, data }: any) => {
       const goal = goals.find((g) => g.id === where.id)!;
       Object.assign(goal, data);
@@ -138,5 +145,26 @@ describe('goal cursor id across an undo past completion', () => {
 
     expect(goal.bankTaskId).toBe('generated-1');
     expect(bankTasks.map((task) => task.id)).toEqual(['cursor-1', 'generated-1']);
+  });
+});
+
+describe('whether a step moved the goal', () => {
+  beforeEach(seedGoalOnFinalChunk);
+
+  test('advancing a goal that is already complete reports that nothing moved', async () => {
+    expect(await step('cursor-1', 'advance')).toMatchObject({ moved: true });
+    expect(await step('cursor-1', 'advance')).toMatchObject({ moved: false });
+    expect(goals[0].currentValue).toBe(100);
+  });
+
+  test('rolling a step back reports a move', async () => {
+    await step('cursor-1', 'advance');
+
+    expect(await step('cursor-1', 'retreat')).toMatchObject({ moved: true });
+    expect(goals[0].currentValue).toBe(90);
+  });
+
+  test('a task that is not a goal cursor moves nothing', async () => {
+    expect(await step('not-a-cursor', 'advance')).toEqual({ goal: null, moved: false });
   });
 });

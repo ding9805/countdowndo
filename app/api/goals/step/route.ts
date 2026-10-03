@@ -11,6 +11,9 @@ import { stepGoal, withSerializableRetry, SERIALIZABLE } from '@/lib/goal-servic
 // (advance) or un-marked (retreat). Resolves the goal by the unique
 // bankTaskId server-side; a task that isn't a goal cursor is a no-op, so the
 // engine can call this for every bank-linked task without pre-filtering.
+// `moved` says whether the goal's progress actually changed: advancing a goal
+// that's already complete changes nothing, and the engine then knows not to
+// roll it back when that task is un-marked.
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest) {
     // currentValue from the row it's handed, so reading outside would let two
     // concurrent steps (rapid done/undo, or two tabs) both start from the same
     // value and lose one interval. See withSerializableRetry in goal-service.
-    const updated = await withSerializableRetry(() =>
+    const result = await withSerializableRetry(() =>
       prisma.$transaction(
         async (tx) => {
           // Match on lastBankTaskId too: after the completing step deletes the
@@ -41,13 +44,15 @@ export async function POST(req: NextRequest) {
             where: { userId, OR: [{ bankTaskId }, { lastBankTaskId: bankTaskId }] },
           });
           if (!goal) return null;
-          return stepGoal(tx, goal, direction === 'advance' ? 1 : -1);
+          const before = goal.currentValue;
+          const updated = await stepGoal(tx, goal, direction === 'advance' ? 1 : -1);
+          return { goal: updated, moved: updated.currentValue !== before };
         },
         SERIALIZABLE
       )
     );
 
-    return NextResponse.json({ goal: updated });
+    return NextResponse.json(result ?? { goal: null, moved: false });
   } catch (error: any) {
     console.error('POST /api/goals/step error:', error);
     return NextResponse.json({ error: 'Failed to update goal' }, { status: 500 });

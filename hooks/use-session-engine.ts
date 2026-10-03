@@ -109,6 +109,10 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // task before its log id has come back can't retract anything yet, so it
   // flags the entry as cancelled and the retraction runs when the id lands.
   const pendingLogRef = useRef<Map<string, { promise: Promise<Record<string, string>>; cancelled: boolean }>>(new Map());
+  // Goal advances still in flight, keyed by task id. Un-marking a task before
+  // its advance has answered can't know yet whether there's a step to roll
+  // back, so it waits for the answer — see handleMarkDone.
+  const pendingAdvanceRef = useRef<Map<string, { promise: Promise<boolean>; cancelled: boolean }>>(new Map());
   // Bumped synchronously by every local write, before its debounce. A poll
   // response is only trustworthy if this is unchanged across the poll's fetch:
   // a poll issued just before a local change (e.g. Clear all) comes back
@@ -239,7 +243,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     setTasks((prev: Task[]) => {
       const remaining = (prev ?? []).filter((t: Task) => !t?.isDone);
       const reset = recalculateCumulativeTimes(
-        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+        remaining.map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null, goalAdvanced: null } as Task))
       );
       setSessionTotalSeconds(reset.length > 0 ? reset[reset.length - 1].cumulativeSeconds : 0);
       return reset;
@@ -612,13 +616,14 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     sessionSavedToDbRef.current = false;
     pendingOneOffBankTaskIdsRef.current.clear();
     pendingLogRef.current.clear();
+    pendingAdvanceRef.current.clear();
     const startMs = Date.now();
     setSessionStartTime(startMs);
     setPausedElapsed(0);
     setElapsedSeconds(0);
     setSessionState('running');
     const resetTasks = recalculateCumulativeTimes(
-      (tasks ?? []).map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+      (tasks ?? []).map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null, goalAdvanced: null } as Task))
     );
     // Initialize sessionTotalSeconds with the sum of all task durations
     const totalSeconds = resetTasks.length > 0 ? resetTasks[resetTasks.length - 1].cumulativeSeconds : 0;
@@ -770,8 +775,10 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // without a toast the goal just quietly doesn't move and the user has no way
   // to tell. The refresh event fires either way — on failure it resyncs the
   // card to the server's (unchanged) progress rather than leaving it stale.
-  const stepGoalForBankTask = useCallback(async (bankTaskId: string, direction: 'advance' | 'retreat') => {
-    if (!isLoggedIn || !bankTaskId) return;
+  // Resolves to whether the goal actually moved (false on failure, and for a
+  // task that isn't a goal cursor).
+  const stepGoalForBankTask = useCallback(async (bankTaskId: string, direction: 'advance' | 'retreat'): Promise<boolean> => {
+    if (!isLoggedIn || !bankTaskId) return false;
     try {
       const res = await fetch('/api/goals/step', {
         method: 'POST',
@@ -781,6 +788,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       // A task that isn't a goal cursor still answers 200 with { goal: null },
       // so a non-ok status is always a real failure, never the no-op case.
       if (!res.ok) throw new Error(`Goal step failed with ${res.status}`);
+      const data = await res.json().catch(() => null);
+      return data?.moved === true;
     } catch (e) {
       console.error('Failed to step goal:', e);
       toast.error(
@@ -789,6 +798,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           : "Couldn't roll back goal progress — it may be out of date",
         { id: 'goal-step-error' }
       );
+      return false;
     } finally {
       window.dispatchEvent(new Event('bank-tasks-updated'));
     }
@@ -849,7 +859,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const remaining = recalculateCumulativeTimes(
       (tasks ?? [])
         .filter((t: Task) => !t?.isDone)
-        .map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null } as Task))
+        .map((t: Task) => ({ ...(t ?? {}), isDone: false, doneAt: null, bonusSeconds: 0, completionLogId: null, goalAdvanced: null } as Task))
     );
     const remainingTotal = remaining.length > 0 ? remaining[remaining.length - 1].cumulativeSeconds : 0;
 
@@ -887,7 +897,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       // Un-marking: retract the log entry we created (if any), so a later
       // done -> undone -> done cycle doesn't leave two entries behind.
       const updated = tasks.map((t: Task, i: number) =>
-        i === idx ? { ...t, isDone: false, doneAt: null, completionLogId: null } as Task : t
+        i === idx ? { ...t, isDone: false, doneAt: null, completionLogId: null, goalAdvanced: null } as Task : t
       );
       setTasks(updated);
       saveSessionToDb(updated);
@@ -907,8 +917,21 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
       // Restore the soft-deleted bank row so an accidental check-off doesn't
       // keep the task hidden from the bank.
       if (task.bankTaskId) {
-        setOneOffChecked([task.bankTaskId], false);
-        stepGoalForBankTask(task.bankTaskId, 'retreat');
+        const bankTaskId = task.bankTaskId;
+        setOneOffChecked([bankTaskId], false);
+        // Roll the goal back only if marking this task done moved it: an
+        // extra copy marked done after the goal was complete moved nothing,
+        // and rolling back for it would un-complete the goal. Unknown (marked
+        // done before this was tracked) still rolls back, as it always did.
+        const advance = pendingAdvanceRef.current.get(taskId);
+        if (advance && !advance.cancelled) {
+          advance.cancelled = true;
+          advance.promise.then((moved) => {
+            if (moved) stepGoalForBankTask(bankTaskId, 'retreat');
+          });
+        } else if (task.goalAdvanced !== false) {
+          stepGoalForBankTask(bankTaskId, 'retreat');
+        }
       }
       return;
     }
@@ -920,15 +943,29 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     );
     setTasks(provisional);
     saveSessionToDb(provisional);
+    const epoch = sessionEpochRef.current;
 
     // Soft-delete the bank row so the one-off disappears from the bank right
     // away. The hard delete waits for session end, so unchecking can undo this.
     if (task.bankTaskId) {
       setOneOffChecked([task.bankTaskId], true);
-      stepGoalForBankTask(task.bankTaskId, 'advance');
+      const advance = { promise: stepGoalForBankTask(task.bankTaskId, 'advance'), cancelled: false };
+      pendingAdvanceRef.current.set(taskId, advance);
+      advance.promise.then((moved) => {
+        if (pendingAdvanceRef.current.get(taskId) === advance) pendingAdvanceRef.current.delete(taskId);
+        // Un-marked while the request was out (handled there), or the session ended.
+        if (advance.cancelled || sessionEpochRef.current !== epoch) return;
+        // Saved with the task, so un-marking it on another device knows too.
+        setTasks((prev: Task[]) => {
+          const withResult = prev.map((t: Task) =>
+            t.id === taskId ? { ...t, goalAdvanced: moved } : t
+          );
+          saveSessionToDb(withResult);
+          return withResult;
+        });
+      });
     }
 
-    const epoch = sessionEpochRef.current;
     const promise = logCompletedTasks([{ ...task, isDone: true, doneAt }]);
     const entry = { promise, cancelled: false };
     pendingLogRef.current.set(taskId, entry);

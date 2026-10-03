@@ -1,5 +1,6 @@
 /**
- * Regression tests for how useSessionEngine persists the active session:
+ * Regression tests for useSessionEngine, mostly how it persists the active
+ * session:
  *
  *  - A save requested by an async callback (the completion-log id attach) is
  *    built from the state when it is sent, so it can't roll back a pause made
@@ -12,12 +13,16 @@
  *    that hasn't loaded the session (a failed or slow first load, or one that
  *    loaded none) can't overwrite one that exists, and a device that missed
  *    a Stop doesn't bring the session back.
+ *  - Un-marking a goal task rolls the goal back only if marking it done
+ *    actually moved it — not for an extra copy marked done after the goal was
+ *    complete — and that's saved with the task for other devices.
  *
  * The repo has no DOM renderer for tests, so the real hook runs under the
  * small hooks runtime below, against a fake /api/active-session.
  */
 
 import { useSessionEngine } from '@/hooks/use-session-engine';
+import type { BankTask } from '@/lib/types';
 
 jest.mock('react', () => ({
   useState: (initial: any) => mockUseState(initial),
@@ -166,6 +171,12 @@ let heldLogReplies: ((logId: string) => void)[] = [];
 let heldMethods = new Set<string>();
 let heldSessionReplies: (() => void)[] = [];
 let failingGets = 0;
+// Whether a goal advance moves its goal (it doesn't once the goal is
+// complete), and whether /api/goals/step replies are held for a test to
+// release from heldGoalStepReplies.
+let advanceMovesGoal = true;
+let holdGoalSteps = false;
+let heldGoalStepReplies: (() => void)[] = [];
 
 const reply = (status: number, body: unknown) => ({
   ok: status >= 200 && status < 300,
@@ -213,6 +224,13 @@ const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
     }
     return response;
   }
+  if (url === '/api/goals/step') {
+    const response = reply(200, { goal: {}, moved: body.direction === 'retreat' || advanceMovesGoal });
+    if (holdGoalSteps) {
+      return new Promise<ReturnType<typeof reply>>((resolve) => heldGoalStepReplies.push(() => resolve(response)));
+    }
+    return response;
+  }
   if (url === '/api/completion-log' && method === 'POST') {
     // Held open to model a slow request; each test decides when it answers.
     return new Promise<ReturnType<typeof reply>>((resolve) => {
@@ -233,6 +251,7 @@ const lastSessionPost = () => {
 };
 
 const taskNames = (tasks: { name: string }[]) => tasks.map((task) => task.name);
+const goalSteps = () => sentRequests.filter((r) => r.url === '/api/goals/step').map((r) => r.body.direction);
 
 // A session saved by another device: one 15-minute task, running (or staged).
 function otherDeviceSession(sessionState: 'running' | 'idle' = 'running') {
@@ -271,6 +290,30 @@ async function startRunningSession() {
   return engine;
 }
 
+// A goal's cursor task in the Task Bank.
+const goalCursor: BankTask = {
+  id: 'cursor-1',
+  name: 'Read: 90–100 pages',
+  durationSeconds: 600,
+  color: 'orange',
+  tags: [],
+  isOneOff: false,
+  dueDate: null,
+  createdAt: '2026-10-01T00:00:00.000Z',
+  updatedAt: '2026-10-01T00:00:00.000Z',
+};
+
+// Logged in, running a session of one copy of the goal's cursor task.
+async function startGoalSession() {
+  const engine = renderEngine();
+  await flushMicrotasks();
+  engine.current.handleAddFromBank([{ bankTask: goalCursor }]);
+  await advance(1000);
+  engine.current.handleStartSession();
+  await advance(1000);
+  return engine;
+}
+
 beforeEach(() => {
   jest.useFakeTimers({ doNotFake: ['nextTick', 'queueMicrotask'] });
   jest.setSystemTime(new Date('2026-10-03T09:00:00Z'));
@@ -281,6 +324,9 @@ beforeEach(() => {
   heldMethods = new Set();
   heldSessionReplies = [];
   failingGets = 0;
+  advanceMovesGoal = true;
+  holdGoalSteps = false;
+  heldGoalStepReplies = [];
   renderErrors = [];
   mockDocument.visibilityState = 'visible';
 });
@@ -492,5 +538,71 @@ describe('a save the server has no matching version for', () => {
     expect(sessionPosts()).toHaveLength(postsBefore + 1);
     expect(lastSessionPost().body.lastKnownUpdatedAt).toBeNull();
     expect(taskNames(sessionRow.tasks)).toEqual(['Next thing']);
+  });
+});
+
+describe('un-marking a goal task', () => {
+  test('rolls the goal back when marking it done moved the goal', async () => {
+    const engine = await startGoalSession();
+    const taskId = engine.current.tasks[0].id;
+
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+
+    expect(goalSteps()).toEqual(['advance', 'retreat']);
+  });
+
+  test('leaves a completed goal alone when marking an extra copy done moved nothing', async () => {
+    const engine = await startGoalSession();
+    const taskId = engine.current.tasks[0].id;
+    advanceMovesGoal = false; // the goal was already complete
+
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+
+    expect(goalSteps()).toEqual(['advance']);
+  });
+
+  test.each([
+    [true, ['advance', 'retreat']],
+    [false, ['advance']],
+  ])('un-marked before the advance answers (moved: %s), waits for the answer', async (moved, expected) => {
+    const engine = await startGoalSession();
+    const taskId = engine.current.tasks[0].id;
+    advanceMovesGoal = moved;
+    holdGoalSteps = true;
+
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+    expect(goalSteps()).toEqual(['advance']);
+
+    holdGoalSteps = false;
+    heldGoalStepReplies.shift()!();
+    await flushMicrotasks();
+
+    expect(goalSteps()).toEqual(expected);
+  });
+
+  test('another device un-marking it knows too: the result is saved with the task', async () => {
+    const engine = await startGoalSession();
+    advanceMovesGoal = false;
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await advance(1000);
+    expect(lastSessionPost().body.tasks[0]).toMatchObject({ isDone: true, goalAdvanced: false });
+    engine.unmount();
+
+    const otherDevice = renderEngine();
+    await flushMicrotasks();
+    otherDevice.current.handleMarkDone(otherDevice.current.tasks[0].id);
+    await flushMicrotasks();
+
+    expect(otherDevice.current.tasks[0].isDone).toBe(false);
+    expect(goalSteps()).toEqual(['advance']);
   });
 });

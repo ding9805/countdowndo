@@ -22,6 +22,10 @@ export interface Task {
   // un-marking it can retract that entry instead of leaving a duplicate
   // behind if it's marked done again later.
   completionLogId?: string | null;
+  // Whether marking this task done actually moved its goal forward — not for
+  // a copy marked done after the goal was already complete — so un-marking
+  // it only rolls back a step that happened. Unset until the step answers.
+  goalAdvanced?: boolean | null;
   // If this task was imported from the task bank, track its bank ID and whether
   // it's one-off so we can delete it from the bank if completed or removed
   bankTaskId?: string | null;
