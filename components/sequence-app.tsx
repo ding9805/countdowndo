@@ -268,6 +268,7 @@ export function SequenceApp() {
         open={bankPickerOpen}
         onOpenChange={setBankPickerOpen}
         onConfirm={handleAddFromBank}
+        sessionTasks={tasks}
       />
     </div>
   );

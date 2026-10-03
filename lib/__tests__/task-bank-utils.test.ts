@@ -1,4 +1,5 @@
-import { sortBankTasks, isOverdue, formatDueDate, dueDayDiff } from '../task-bank-utils';
+import { sortBankTasks, isOverdue, formatDueDate, dueDayDiff, countQueuedBankCopies } from '../task-bank-utils';
+import { cursorTaskNameOffset, remainingIntervals } from '../goal-utils';
 import { BankTask } from '../types';
 
 function makeTask(overrides: Partial<BankTask> & { id: string }): BankTask {
@@ -172,5 +173,41 @@ describe('formatDueDate', () => {
     const result = formatDueDate('2026-07-14', now);
     expect(result).not.toBe('Today');
     expect(result).not.toBe('Tomorrow');
+  });
+});
+
+// Done copies used to count as queued, so mid-session the Task Bank
+// suggestions skipped a goal chunk for every copy already done, and hid the
+// goal's last chunks altogether.
+describe('countQueuedBankCopies', () => {
+  // A 0 → 100 page goal in 10 chunks.
+  const goal = { name: 'Read', unit: 'pages', startValue: 0, targetValue: 100, intervals: 10 };
+
+  test('counts the copies of each bank task still to do in a session', () => {
+    expect(countQueuedBankCopies([
+      { bankTaskId: 'read', isDone: false },
+      { bankTaskId: 'read', isDone: false },
+      { bankTaskId: 'run', isDone: false },
+      { bankTaskId: null, isDone: false },
+    ])).toEqual({ read: 2, run: 1 });
+  });
+
+  test('a done copy does not count, so the next copy is the chunk after the queued one', () => {
+    // One copy done (0–10, which moved the goal to 10), one still queued (10–20).
+    const queued = countQueuedBankCopies([
+      { bankTaskId: 'cursor-1', isDone: true },
+      { bankTaskId: 'cursor-1', isDone: false },
+    ]);
+
+    expect(cursorTaskNameOffset({ ...goal, currentValue: 10 }, queued['cursor-1'] ?? 0)).toBe('Read: 20–30 pages');
+  });
+
+  test("a goal's last chunk can still be added once all the others are done", () => {
+    const tasks = Array.from({ length: 9 }, () => ({ bankTaskId: 'cursor-1', isDone: true }));
+    const queued = countQueuedBankCopies(tasks)['cursor-1'] ?? 0;
+    const atNinety = { ...goal, currentValue: 90 };
+
+    expect(queued).toBeLessThan(remainingIntervals(atNinety));
+    expect(cursorTaskNameOffset(atNinety, queued)).toBe('Read: 90–100 pages');
   });
 });

@@ -4,6 +4,7 @@ import React, { useRef, useState } from 'react';
 import { BankTask, Goal, PickedBankTask, Task } from '@/lib/types';
 import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
 import { formatDuration } from '@/lib/timer-utils';
+import { countQueuedBankCopies } from '@/lib/task-bank-utils';
 import { Input } from '@/components/ui/input';
 
 interface TaskNameAutocompleteProps {
@@ -36,11 +37,12 @@ export function TaskNameAutocomplete({
   const searchRequest = useRef(0);
   const listId = React.useId();
   const query = value.trim().toLocaleLowerCase();
+  const queuedCopies = countQueuedBankCopies(tasks);
   const suggestions = query && isLoggedIn
     ? bankTasks
         .filter((task) => task.name.toLocaleLowerCase().includes(query))
         .filter((task) => {
-          const queuedCount = tasks.filter((queued) => queued.bankTaskId === task.id).length;
+          const queuedCount = queuedCopies[task.id] ?? 0;
           const goal = bankGoals.find((item) => item.bankTaskId === task.id);
           if (goal) return queuedCount < remainingIntervals(goal);
           return !task.isOneOff || queuedCount === 0;
@@ -77,7 +79,7 @@ export function TaskNameAutocomplete({
 
   const selectSuggestion = (task: BankTask) => {
     const goal = bankGoals.find((item) => item.bankTaskId === task.id);
-    const alreadyQueued = tasks.filter((queued) => queued.bankTaskId === task.id).length;
+    const alreadyQueued = queuedCopies[task.id] ?? 0;
     if (task.isOneOff && !goal && alreadyQueued > 0) return;
     if (goal && alreadyQueued >= remainingIntervals(goal)) return;
     onSelect([{ bankTask: task, name: goal ? cursorTaskNameOffset(goal, alreadyQueued) : undefined }]);

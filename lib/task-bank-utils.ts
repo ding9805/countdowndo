@@ -1,4 +1,4 @@
-import { BankTask, TASK_COLORS, TaskBankSortMode } from './types';
+import { BankTask, Task, TASK_COLORS, TaskBankSortMode } from './types';
 
 export const TASK_BANK_SORT_MODES = ['recent', 'due', 'alpha', 'tag', 'color'] as const;
 
@@ -101,4 +101,16 @@ export function formatDueDate(due: string, now?: Date): string {
     options.year = 'numeric';
   }
   return dueDate.toLocaleDateString(undefined, options);
+}
+
+// How many copies of each bank task are still waiting to be done in a
+// session, by bank task id. Done copies don't count: each one has already
+// advanced its goal, so the goal's remaining chunks no longer include it, and
+// a done one-off has already left the bank.
+export function countQueuedBankCopies(tasks: Pick<Task, 'bankTaskId' | 'isDone'>[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  tasks.forEach((task) => {
+    if (task.bankTaskId && !task.isDone) counts[task.bankTaskId] = (counts[task.bankTaskId] ?? 0) + 1;
+  });
+  return counts;
 }

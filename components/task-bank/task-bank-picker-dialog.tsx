@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
-import { BankTask, Goal, PickedBankTask } from '@/lib/types';
+import { BankTask, Goal, PickedBankTask, Task } from '@/lib/types';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { TaskBankCard } from './task-bank-card';
@@ -11,14 +11,16 @@ import { TagFilterBar } from './tag-filter-bar';
 import { Archive, LogIn } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
 import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
+import { countQueuedBankCopies } from '@/lib/task-bank-utils';
 
 interface TaskBankPickerDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfirm: (picked: PickedBankTask[]) => void;
+  sessionTasks: Task[];
 }
 
-export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBankPickerDialogProps) {
+export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTasks }: TaskBankPickerDialogProps) {
   const { data: authSession, status: authStatus } = useSession() || {};
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
 
@@ -38,6 +40,13 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
     () => Object.values(addCounts).reduce((sum, n) => sum + n, 0),
     [addCounts]
   );
+  // Copies of each task already waiting in the session when the dialog
+  // opened. Adds made here stack on top of them: they count toward the same
+  // caps, and a goal's chunk names carry on after them instead of starting
+  // over at the goal's next chunk on every visit.
+  const [queuedBefore, setQueuedBefore] = useState<Record<string, number>>({});
+  const sessionTasksRef = useRef(sessionTasks);
+  sessionTasksRef.current = sessionTasks;
 
   const loadBankData = useCallback(async () => {
     try {
@@ -59,6 +68,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
     setLoading(true);
     addCountsRef.current = {};
     setAddCounts({});
+    setQueuedBefore(countQueuedBankCopies(sessionTasksRef.current));
     setActiveTags([]);
     loadBankData().finally(() => setLoading(false));
   }, [open, isLoggedIn, loadBankData]);
@@ -101,18 +111,19 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
     const added = addCountsRef.current[id] ?? 0;
+    const queued = (queuedBefore[id] ?? 0) + added;
     const goal = goalByCursorId[id];
     // A one-off represents a single unit of work, but a goal's cursor task is
     // stored as a one-off and still has further interval chunks to hand out.
-    if (task.isOneOff && !goal && added > 0) return;
+    if (task.isOneOff && !goal && queued > 0) return;
 
     // Repeated adds of a goal's cursor task each get the next interval chunk
     // ("…: 10–20", then "…: 20–30", …) instead of duplicating the same name.
     let name: string | undefined;
     if (goal) {
       // All remaining intervals are already queued — nothing left to add.
-      if (added >= remainingIntervals(goal)) return;
-      name = cursorTaskNameOffset(goal, added);
+      if (queued >= remainingIntervals(goal)) return;
+      name = cursorTaskNameOffset(goal, queued);
     }
 
     addCountsRef.current = { ...addCountsRef.current, [id]: added + 1 };
@@ -165,7 +176,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm }: TaskBank
                         key={task.id}
                         task={task}
                         selectable
-                        selected={(addCounts[task.id] ?? 0) > 0}
+                        selected={(addCounts[task.id] ?? 0) + (queuedBefore[task.id] ?? 0) > 0}
                         addedCount={addCounts[task.id] ?? 0}
                         onToggleSelect={handlePick}
                       />
