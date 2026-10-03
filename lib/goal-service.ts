@@ -32,8 +32,19 @@ export async function withSerializableRetry<T>(run: () => Promise<T>): Promise<T
 // Creates the cursor BankTask for a goal and links it. Caller must ensure the
 // goal is incomplete and currently has no cursor.
 async function createCursorTask(tx: Tx, goal: Goal): Promise<Goal> {
+  // Recreate under the previous cursor's id once that row is gone (deleted at
+  // completion, or from the bank). Session tasks keep the id they were added
+  // with, so a fresh id would strand them: after an undo past completion, the
+  // redo from that same session task would match no goal and silently leave
+  // it short of the target.
+  const reusableId =
+    goal.lastBankTaskId &&
+    !(await tx.bankTask.findUnique({ where: { id: goal.lastBankTaskId }, select: { id: true } }))
+      ? goal.lastBankTaskId
+      : undefined;
   const task = await tx.bankTask.create({
     data: {
+      id: reusableId,
       userId: goal.userId,
       name: cursorTaskName(goal),
       durationSeconds: goal.intervalSeconds,
