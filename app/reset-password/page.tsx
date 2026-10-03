@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, Suspense } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Timer, ArrowLeft, CheckCircle } from 'lucide-react';
@@ -10,7 +10,15 @@ import { ThemeToggle } from '@/components/theme-toggle';
 
 function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const token = searchParams.get('token');
+  // Read once, then taken out of the address bar (below) so the token isn't
+  // left in the browser history or picked up by anything reading the URL.
+  const [token] = useState(() => searchParams.get('token'));
+
+  useEffect(() => {
+    if (!token) return;
+    // Passes the router's history state through, so only the URL changes.
+    window.history.replaceState(window.history.state, '', window.location.pathname);
+  }, [token]);
 
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
