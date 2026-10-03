@@ -6,7 +6,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { goalCreateSchema, formatZodError } from '@/lib/schemas';
 import { createCursorTask } from '@/lib/goal-service';
-import { todayLocalDateString } from '@/lib/goal-utils';
+import { goalStartDate } from '@/lib/goal-utils';
 import { getUserTagCorpus, normalizeTags } from '@/lib/tag-utils';
 
 export async function GET() {
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
     }
-    const { name, unit, startValue, targetValue, intervals, intervalSeconds, color, dueDate, tags } = parsed.data;
+    const { name, unit, startValue, targetValue, intervals, intervalSeconds, color, dueDate, tags, startDate } = parsed.data;
 
     // Only fetch the tag corpus when tags were actually provided — same skip
     // optimization as POST /api/task-bank.
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
             intervalSeconds: Math.round(intervalSeconds),
             color: color || 'orange',
             tags: normalizedTags,
-            startDate: todayLocalDateString(),
+            startDate: goalStartDate(startDate),
             dueDate,
           },
         });

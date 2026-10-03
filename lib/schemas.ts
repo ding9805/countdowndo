@@ -116,6 +116,8 @@ export const goalCreateSchema = z
     color: taskColorSchema.optional(),
     tags: tagsSchema.optional(),
     dueDate: dueDateSchema,
+    // The browser's date, so the goal starts on the user's day — see goalStartDate.
+    startDate: z.string().date().optional(),
   })
   .refine((g) => g.targetValue > g.startValue, {
     message: 'Target must be greater than the starting value',
