@@ -10,14 +10,21 @@ export function DomainNoticeBanner() {
   const [dismissed, setDismissed] = useState(true);
 
   useEffect(() => {
-    const dismissedAt = Number(localStorage.getItem(DISMISSED_KEY));
+    // localStorage throws when the browser blocks site data; the notice then
+    // shows on every visit rather than taking the page down.
+    let dismissedAt = 0;
+    try {
+      dismissedAt = Number(localStorage.getItem(DISMISSED_KEY));
+    } catch {}
     setDismissed(Boolean(dismissedAt) && Date.now() - dismissedAt < REAPPEAR_AFTER_MS);
   }, []);
 
   if (dismissed) return null;
 
   const dismiss = () => {
-    localStorage.setItem(DISMISSED_KEY, String(Date.now()));
+    try {
+      localStorage.setItem(DISMISSED_KEY, String(Date.now()));
+    } catch {}
     setDismissed(true);
   };
 

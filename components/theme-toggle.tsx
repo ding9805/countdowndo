@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
-import { readThemeMode, THEME_MODE_STORAGE_KEY, type AppliedTheme } from '@/lib/theme'
+import { readThemeMode, writeThemeMode, THEME_MODE_STORAGE_KEY, type AppliedTheme } from '@/lib/theme'
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()
@@ -29,7 +29,7 @@ export function ThemeToggle() {
 
   const toggleTheme = () => {
     const nextTheme = currentTheme === 'dark' ? 'light' : 'dark'
-    localStorage.setItem(THEME_MODE_STORAGE_KEY, nextTheme)
+    writeThemeMode(nextTheme)
     setCurrentTheme(nextTheme)
     setTheme(nextTheme)
   }

@@ -9,7 +9,7 @@ import { ThemeToggle } from './theme-toggle';
 import { TimerSoundSettings } from './timer-sound-settings';
 import type { TimerChime } from '@/lib/use-timer-sound';
 import { DEFAULT_TIMER_SETTINGS, readTimerSettings, writeTimerSettings } from '@/lib/timer-settings';
-import { getAutomaticTheme, readThemeMode, THEME_MODE_STORAGE_KEY, type ThemeMode } from '@/lib/theme';
+import { getAutomaticTheme, readThemeMode, writeThemeMode, type ThemeMode } from '@/lib/theme';
 import { Label } from '@/components/ui/label';
 
 const THEME_OPTIONS: { value: ThemeMode; label: string; description: string; icon: typeof Sun }[] = [
@@ -35,7 +35,7 @@ export function SettingsPage() {
   }, [settingsLoaded, timerSettings]);
 
   const selectThemeMode = (mode: ThemeMode) => {
-    localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
+    writeThemeMode(mode);
     setThemeMode(mode);
     setTheme(mode === 'auto' ? getAutomaticTheme() : mode);
   };
