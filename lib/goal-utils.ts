@@ -4,6 +4,9 @@
 
 export const GOAL_EPSILON = 1e-9;
 
+// The most chunks a goal can be split into; the API rejects more.
+export const MAX_GOAL_INTERVALS = 1000;
+
 export interface GoalLike {
   name: string;
   unit: string;
@@ -106,10 +109,11 @@ export function isOffGrid(
 }
 
 // Interval counts nearest `desired` that split a whole-number range into
-// whole-number chunks — the divisors of the range. Used by the goal form to
-// suggest "20 gives you 7 per session" instead of leaving the user to find a
-// clean split by trial and error. Empty when the range isn't a whole number
-// (no count can make the chunks whole) or when `desired` already divides it.
+// whole-number chunks — the divisors of the range, up to MAX_GOAL_INTERVALS.
+// Used by the goal form to suggest "20 gives you 7 per session" instead of
+// leaving the user to find a clean split by trial and error. Empty when the
+// range isn't a whole number (no count can make the chunks whole) or when
+// `desired` already divides it.
 export function wholeIntervalSuggestions(
   start: number,
   target: number,
@@ -120,8 +124,11 @@ export function wholeIntervalSuggestions(
   if (!Number.isInteger(range) || range <= 0) return [];
   if (!Number.isInteger(desired) || desired < 1) return [];
   if (range % desired === 0) return [];
+  // Counting only as high as a goal allows also keeps this quick: the form
+  // runs it on every keystroke, and trying every number up to a range in the
+  // billions froze the page.
   const divisors: number[] = [];
-  for (let d = 1; d <= range; d++) if (range % d === 0) divisors.push(d);
+  for (let d = 1; d <= Math.min(range, MAX_GOAL_INTERVALS); d++) if (range % d === 0) divisors.push(d);
   return divisors
     .sort((a, b) => Math.abs(a - desired) - Math.abs(b - desired) || a - b)
     .slice(0, limit)

@@ -121,4 +121,16 @@ describe('wholeIntervalSuggestions', () => {
   test('silent for a fractional range', () => {
     expect(wholeIntervalSuggestions(0, 10.5, 4)).toEqual([]);
   });
+
+  // The form used to try every number up to the range, on every keystroke.
+  test('only suggests counts a goal can have', () => {
+    // 1009 is prime, and its other divisor, itself, is over the limit.
+    expect(wholeIntervalSuggestions(0, 1009, 10)).toEqual([1]);
+  });
+
+  test('stays quick for a range in the billions', () => {
+    const started = Date.now();
+    expect(wholeIntervalSuggestions(0, 2e9, 7)).toEqual([4, 5, 8]);
+    expect(Date.now() - started).toBeLessThan(200);
+  });
 });

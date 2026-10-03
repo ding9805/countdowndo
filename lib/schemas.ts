@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { TASK_COLORS } from '@/lib/types';
+import { MAX_GOAL_INTERVALS } from '@/lib/goal-utils';
 
 // Shared validation for the state-bearing APIs (active-session, completion-log,
 // task-bank). Centralized so every route enforces the same shape/bounds instead
@@ -103,7 +104,7 @@ export const checkOneOffBankTasksSchema = z.object({
 // that break the derived interval math or the progress UI.
 const MAX_UNIT_LENGTH = 30;
 const goalValueSchema = z.number().finite().min(-1e9).max(1e9);
-const goalIntervalsSchema = z.number().int().min(1).max(1000);
+const goalIntervalsSchema = z.number().int().min(1).max(MAX_GOAL_INTERVALS);
 
 export const goalCreateSchema = z
   .object({
