@@ -58,6 +58,42 @@ async function verifySignIn(email: string, password: string, ip: string) {
 // a password reset, instead of the JWT's full ~30-day lifetime.
 const TOKEN_VERSION_CHECK_INTERVAL_MS = 60_000;
 
+// The tokenVersion last read for each user (null: no such user), oldest read
+// first. Kept in this server's memory rather than in the token: a route
+// handler's getServerSession can't write the cookie back, so a time stamped
+// in the token only moved on when the browser refetched its session, and
+// every request more than a minute after that read the DB.
+const tokenVersionReads = new Map<string, { tokenVersion: number | null; readAt: number }>();
+
+// Whether a token's version matches the user's in the DB, as read within the
+// last minute.
+async function isTokenVersionCurrent(userId: string, tokenVersion: unknown): Promise<boolean> {
+  const now = Date.now();
+  let read = tokenVersionReads.get(userId);
+  if (
+    !read ||
+    now - read.readAt > TOKEN_VERSION_CHECK_INTERVAL_MS ||
+    // Versions only go up, so a token newer than the version read means it
+    // has changed since: a password reset, then a sign-in with the new one.
+    (typeof tokenVersion === 'number' && read.tokenVersion !== null && tokenVersion > read.tokenVersion)
+  ) {
+    const dbUser = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { tokenVersion: true },
+    });
+    read = { tokenVersion: dbUser?.tokenVersion ?? null, readAt: now };
+    tokenVersionReads.delete(userId);
+    tokenVersionReads.set(userId, read);
+    // Forget users not read for a minute. Each read goes back in at the end,
+    // so the oldest come first and this stops at the first recent one.
+    for (const [id, { readAt }] of tokenVersionReads) {
+      if (now - readAt <= TOKEN_VERSION_CHECK_INTERVAL_MS) break;
+      tokenVersionReads.delete(id);
+    }
+  }
+  return read.tokenVersion !== null && read.tokenVersion === tokenVersion;
+}
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -93,24 +129,15 @@ export const authOptions: NextAuthOptions = {
         token.email = user.email;
         token.name = user.name;
         token.tokenVersion = (user as any).tokenVersion ?? 0;
-        token.tokenVersionCheckedAt = Date.now();
         return token;
       }
 
-      // Subsequent request: periodically confirm this token's version still
-      // matches the DB. A password reset increments tokenVersion, so a stale
-      // token (e.g. an attacker's, if that's why the password was reset)
-      // gets flagged here instead of staying valid for the JWT's full lifetime.
-      const lastChecked = (token.tokenVersionCheckedAt as number) ?? 0;
-      if (token?.id && Date.now() - lastChecked > TOKEN_VERSION_CHECK_INTERVAL_MS) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: token.id as string },
-          select: { tokenVersion: true },
-        });
-        token.tokenVersionCheckedAt = Date.now();
-        if (!dbUser || dbUser.tokenVersion !== token.tokenVersion) {
-          token.invalidated = true;
-        }
+      // Subsequent request: confirm this token's version still matches the
+      // DB. A password reset increments tokenVersion, so a stale token (e.g.
+      // an attacker's, if that's why the password was reset) gets flagged
+      // here instead of staying valid for the JWT's full lifetime.
+      if (token?.id && !(await isTokenVersionCurrent(token.id as string, token.tokenVersion))) {
+        token.invalidated = true;
       }
       return token;
     },
