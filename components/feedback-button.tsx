@@ -20,6 +20,9 @@ export function FeedbackButton() {
   const [category, setCategory] = useState<Category | null>(null);
   const [message, setMessage] = useState('');
   const [email, setEmail] = useState('');
+  // The hidden spam trap's value. People never see the field, so anything in
+  // it was filled in by a bot, and the server quietly drops the submission.
+  const [website, setWebsite] = useState('');
   const [loading, setLoading] = useState(false);
   const [submitted, setSubmitted] = useState(false);
 
@@ -36,7 +39,7 @@ export function FeedbackButton() {
           category,
           message: message.trim(),
           email: email.trim() || undefined,
-          website: '', // honeypot — must be empty
+          website,
         }),
       });
 
@@ -48,13 +51,7 @@ export function FeedbackButton() {
       }
 
       setSubmitted(true);
-      setTimeout(() => {
-        setOpen(false);
-        setSubmitted(false);
-        setCategory(null);
-        setMessage('');
-        setEmail('');
-      }, 2000);
+      setTimeout(reset, 2000);
     } catch (err) {
       toast.error('Failed to submit feedback. Please try again.');
     } finally {
@@ -68,6 +65,7 @@ export function FeedbackButton() {
     setCategory(null);
     setMessage('');
     setEmail('');
+    setWebsite('');
   };
 
   return (
@@ -166,7 +164,14 @@ export function FeedbackButton() {
 
                     {/* Honeypot — hidden from real users */}
                     <div className="absolute -left-[9999px]" aria-hidden="true">
-                      <input type="text" name="website" tabIndex={-1} autoComplete="off" />
+                      <input
+                        type="text"
+                        name="website"
+                        tabIndex={-1}
+                        autoComplete="off"
+                        value={website}
+                        onChange={(e) => setWebsite(e.target.value)}
+                      />
                     </div>
 
                     {/* Submit */}
