@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { BankTask, BankTaskTemplate, TaskColorId, TaskBankSortMode } from '@/lib/types';
@@ -28,6 +28,12 @@ export function TaskBankPage() {
   const [editingTask, setEditingTask] = useState<BankTask | null>(null);
   const [templatesOpen, setTemplatesOpen] = useState(false);
   const [sortMode, setSortMode] = useState<TaskBankSortMode>('recent');
+  // The saves of rows just added, by their placeholder id: the server's row,
+  // or null if the save failed. An edit or delete of a row still saving waits
+  // for it, then uses the server's id. Kept after a save finishes, because an
+  // open dialog or a stale click can still hold the placeholder id.
+  const taskSaves = useRef(new Map<string, Promise<BankTask | null>>());
+  const templateSaves = useRef(new Map<string, Promise<BankTaskTemplate | null>>());
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -101,16 +107,22 @@ export function TaskBankPage() {
       updatedAt: new Date().toISOString(),
     };
     setTasks((p) => [optimistic, ...p]);
-    try {
+    const save = (async () => {
       const res = await fetch('/api/task-bank', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create task');
-      const created = await res.json();
+      return (await res.json()) as BankTask;
+    })();
+    taskSaves.current.set(tempId, save.catch(() => null));
+    try {
+      const created = await save;
       setTasks((p) => p.map((t) => (t.id === tempId ? created : t)));
-      toast.success('Task added to bank');
+      // Same id as the toast for deleting it, so a task deleted while it was
+      // saving ends up with one toast saying so.
+      toast.success('Task added to bank', { id: tempId });
     } catch (e: any) {
       setTasks((p) => withoutRow(p, tempId));
       toast.error(e?.message ?? 'Something went wrong');
@@ -120,14 +132,18 @@ export function TaskBankPage() {
 
   const handleEdit = async (data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[]; isOneOff: boolean; dueDate: string | null }) => {
     if (!editingTask) return;
+    // The dialog may have opened on a task that was still saving: wait for the
+    // save and edit the row it saved as.
+    const saved = await (taskSaves.current.get(editingTask.id) ?? editingTask);
+    if (!saved) return;
     // Optimistic edit: patch the row in place immediately, close the dialog,
     // replace with the server row on success, put the row back on failure.
-    const original = tasks.find((t) => t.id === editingTask.id) ?? editingTask;
+    const original = tasks.find((t) => t.id === saved.id) ?? saved;
     const optimistic: BankTask = { ...original, ...data };
     setTasks((p) => p.map((t) => (t.id === original.id ? optimistic : t)));
     void (async () => {
       try {
-        const res = await fetch(`/api/task-bank/${editingTask.id}`, {
+        const res = await fetch(`/api/task-bank/${original.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
@@ -148,13 +164,19 @@ export function TaskBankPage() {
     const removed = tasks[index];
     if (!removed) return;
     setTasks((p) => p.filter((t) => t.id !== id));
+    // A task added a moment ago may still be saving: wait for the save, then
+    // delete the row it saved as (nothing, if the save failed). That row also
+    // comes out here, in case the save swapped it in after this click.
+    const saved = await (taskSaves.current.get(id) ?? removed);
+    if (!saved) return;
+    if (saved.id !== id) setTasks((p) => withoutRow(p, saved.id));
     try {
-      const res = await fetch(`/api/task-bank/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/task-bank/${saved.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
-      toast.success('Task deleted');
+      toast.success('Task deleted', { id });
     } catch {
-      setTasks((p) => restoreRow(p, removed, index));
-      toast.error('Failed to delete task');
+      setTasks((p) => restoreRow(p, saved, index));
+      toast.error('Failed to delete task', { id });
     }
   };
 
@@ -171,16 +193,20 @@ export function TaskBankPage() {
     };
     // Same as handleCreate: the editor stays open with its input on failure.
     setTemplates((p) => [optimistic, ...p]);
-    try {
+    const save = (async () => {
       const res = await fetch('/api/task-bank/templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to create template');
-      const created = await res.json();
+      return (await res.json()) as BankTaskTemplate;
+    })();
+    templateSaves.current.set(tempId, save.catch(() => null));
+    try {
+      const created = await save;
       setTemplates((p) => p.map((t) => (t.id === tempId ? created : t)));
-      toast.success('Template created');
+      toast.success('Template created', { id: tempId });
     } catch (e: any) {
       setTemplates((p) => withoutRow(p, tempId));
       toast.error(e?.message ?? 'Something went wrong');
@@ -189,13 +215,15 @@ export function TaskBankPage() {
   };
 
   const handleUpdateTemplate = async (id: string, data: { name: string; durationSeconds: number; color: TaskColorId; tags: string[] }) => {
-    const existing = templates.find((t) => t.id === id);
-    if (!existing) return;
+    // As in handleEdit: the editor may have opened on a template still saving.
+    const saved = await (templateSaves.current.get(id) ?? templates.find((t) => t.id === id));
+    if (!saved) return;
+    const existing = templates.find((t) => t.id === saved.id) ?? saved;
     const optimistic: BankTaskTemplate = { ...existing, ...data };
-    setTemplates((p) => p.map((t) => (t.id === id ? optimistic : t)));
+    setTemplates((p) => p.map((t) => (t.id === existing.id ? optimistic : t)));
     void (async () => {
       try {
-        const res = await fetch(`/api/task-bank/templates/${id}`, {
+        const res = await fetch(`/api/task-bank/templates/${existing.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
@@ -216,13 +244,17 @@ export function TaskBankPage() {
     const removed = templates[index];
     if (!removed) return;
     setTemplates((p) => p.filter((t) => t.id !== id));
+    // As in handleDelete: a template still saving is deleted once saved.
+    const saved = await (templateSaves.current.get(id) ?? removed);
+    if (!saved) return;
+    if (saved.id !== id) setTemplates((p) => withoutRow(p, saved.id));
     try {
-      const res = await fetch(`/api/task-bank/templates/${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/task-bank/templates/${saved.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error();
-      toast.success('Template deleted');
+      toast.success('Template deleted', { id });
     } catch {
-      setTemplates((p) => restoreRow(p, removed, index));
-      toast.error('Failed to delete template');
+      setTemplates((p) => restoreRow(p, saved, index));
+      toast.error('Failed to delete template', { id });
     }
   };
 
