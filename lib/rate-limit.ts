@@ -29,31 +29,41 @@ function hashValue(value: string): string {
 }
 
 // Checks whether `key` (an IP or email, hashed before storage) has hit
-// `scope` within the last `windowSeconds`. If not rate-limited, records this
-// attempt immediately so the check-then-record isn't racy under concurrent
-// requests from the same key.
+// `scope` within the last `windowSeconds`. A transaction-scoped database lock
+// serializes the check and insert for this scope/key, including across server
+// instances and when there is no existing row to lock.
 export async function checkAndRecordRateLimit(
   scope: string,
   key: string,
   windowSeconds: number
 ): Promise<{ limited: boolean; waitSeconds: number }> {
   const keyHash = hashValue(key);
-  const recent = await prisma.rateLimitEntry.findFirst({
-    where: { scope, keyHash, createdAt: { gte: new Date(Date.now() - windowSeconds * 1000) } },
-    orderBy: { createdAt: 'desc' },
-  });
+  const lockId = crypto.createHash('sha256').update(JSON.stringify([scope, keyHash])).digest().readBigInt64BE(0);
+  const result = await prisma.$transaction(async (tx) => {
+    // PostgreSQL releases this lock on commit or rollback. ReadCommitted
+    // makes the subsequent read see the previous lock holder's committed row.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${lockId}::bigint)`;
+    const now = Date.now();
+    const recent = await tx.rateLimitEntry.findFirst({
+      where: { scope, keyHash, createdAt: { gte: new Date(now - windowSeconds * 1000) } },
+      orderBy: { createdAt: 'desc' },
+    });
 
-  if (recent) {
-    const waitSeconds = Math.ceil(
-      (windowSeconds * 1000 - (Date.now() - recent.createdAt.getTime())) / 1000
-    );
-    return { limited: true, waitSeconds: Math.max(1, waitSeconds) };
-  }
+    if (recent) {
+      const waitSeconds = Math.ceil(
+        (windowSeconds * 1000 - (now - recent.createdAt.getTime())) / 1000
+      );
+      return { limited: true, waitSeconds: Math.max(1, waitSeconds) };
+    }
 
-  await prisma.rateLimitEntry.create({ data: { scope, keyHash } });
-  await sweepExpiredEntries();
+    // Stamp after acquiring the lock; the DB's default now() is the start
+    // of the transaction, which may have spent time waiting for the lock.
+    await tx.rateLimitEntry.create({ data: { scope, keyHash, createdAt: new Date(now) } });
+    return { limited: false, waitSeconds: 0 };
+  }, { isolationLevel: 'ReadCommitted' });
 
-  return { limited: false, waitSeconds: 0 };
+  if (!result.limited) await sweepExpiredEntries();
+  return result;
 }
 
 // Sliding-window limit allowing up to `maxAttempts` per window, for scopes

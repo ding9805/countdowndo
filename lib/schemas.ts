@@ -146,12 +146,20 @@ export const goalStepSchema = z.object({
   direction: z.enum(['advance', 'retreat']),
 });
 
+// Shared by signup and password reset. bcrypt truncates at 72 UTF-8 bytes,
+// so a character limit alone would silently discard multibyte suffixes.
+export const passwordSchema = z
+  .string({ required_error: 'Password is required', invalid_type_error: 'Password must be a string' })
+  .min(6, 'Password must be at least 6 characters')
+  .refine((password) => password.length <= 72 && Buffer.byteLength(password, 'utf8') <= 72, {
+    message: 'Password must be at most 72 bytes (some characters use more than one byte)',
+  });
+
 // Signup input. Caps lengths so arbitrarily large strings can't be stored
-// verbatim (254 is the practical email max per RFC 5321; bcrypt only uses the
-// first 72 bytes of the password anyway).
+// verbatim (254 is the practical email max per RFC 5321).
 export const signupSchema = z.object({
   email: z.string().trim().toLowerCase().email('Please enter a valid email address').max(254),
-  password: z.string().min(6, 'Password must be at least 6 characters').max(72),
+  password: passwordSchema,
   name: z.string().trim().max(100).optional().nullable(),
 });
 
