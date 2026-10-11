@@ -19,7 +19,7 @@ export function getDurationPresets(tasks: ReadonlyArray<{ durationSeconds: numbe
   }
   const personal = [...counts.entries()]
     .sort(([a, aCount], [b, bCount]) => bCount - aCount || a - b)
-    .slice(0, 2)
+    .slice(0, 10 - DEFAULT_DURATIONS.length)
     .map(([seconds]) => seconds);
   return [...DEFAULT_DURATIONS, ...personal].sort((a, b) => a - b);
 }

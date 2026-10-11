@@ -277,7 +277,7 @@ export function TaskInputPanel({
                     </div>
                   </div>
 
-                  <div className="w-full sm:w-72 sm:shrink-0">
+                  <div className="w-full min-w-0 sm:w-72 sm:shrink-0">
                     <DurationSelector value={duration} onChange={setDuration} isLoggedIn={isLoggedIn} resetKey={durationReset} />
                   </div>
                 </div>
@@ -286,55 +286,6 @@ export function TaskInputPanel({
           )}
         </AnimatePresence>
       </div>
-
-      {/* Start time picker — collapsible */}
-      {(tasks?.length ?? 0) > 0 && (
-        <div className="glass-card rounded-2xl overflow-hidden" style={{ boxShadow: 'var(--shadow-sm)' }}>
-          <button
-            type="button"
-            onClick={() => setStartTimeCollapsed(!startTimeCollapsed)}
-            aria-expanded={!startTimeCollapsed}
-            aria-controls="planning-start-time"
-            className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-primary" />
-              <span className="text-sm font-medium text-foreground">Start time</span>
-            </div>
-            <div className="flex items-center gap-3">
-              {startTimeMs !== null && (
-                <span className="text-sm text-primary font-medium">
-                  Session ends {getTaskEndTime((tasks ?? [])[(tasks?.length ?? 1) - 1])}
-                </span>
-              )}
-              {startTimeCollapsed ? (
-                <ChevronDown className="w-4 h-4 text-muted-foreground" />
-              ) : (
-                <ChevronUp className="w-4 h-4 text-muted-foreground" />
-              )}
-            </div>
-          </button>
-
-          <AnimatePresence initial={false}>
-            {!startTimeCollapsed && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden"
-              >
-                <div id="planning-start-time" className="px-4 pb-4 flex justify-center">
-                  <StartTimePicker
-                    value={planningStartTime}
-                    onChange={(v) => onPlanningStartTimeChange(v)}
-                  />
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
 
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -509,6 +460,55 @@ export function TaskInputPanel({
             Start Session
           </Button>
         </motion.div>
+      )}
+
+      {/* End time estimator — collapsible */}
+      {(tasks?.length ?? 0) > 0 && (
+        <div className="glass-card rounded-2xl overflow-hidden" style={{ boxShadow: 'var(--shadow-sm)' }}>
+          <button
+            type="button"
+            onClick={() => setStartTimeCollapsed(!startTimeCollapsed)}
+            aria-expanded={!startTimeCollapsed}
+            aria-controls="planning-start-time"
+            className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
+          >
+            <div className="flex items-center gap-2 min-w-0">
+              <Clock className="w-4 h-4 text-primary shrink-0" />
+              <span className="text-sm font-medium text-foreground text-left">End time estimator</span>
+            </div>
+            <div className="flex items-center gap-3">
+              {startTimeMs !== null && (
+                <span className="text-sm text-primary font-medium">
+                  Session ends {getTaskEndTime((tasks ?? [])[(tasks?.length ?? 1) - 1])}
+                </span>
+              )}
+              {startTimeCollapsed ? (
+                <ChevronDown className="w-4 h-4 text-muted-foreground" />
+              ) : (
+                <ChevronUp className="w-4 h-4 text-muted-foreground" />
+              )}
+            </div>
+          </button>
+
+          <AnimatePresence initial={false}>
+            {!startTimeCollapsed && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="overflow-hidden"
+              >
+                <div id="planning-start-time" className="px-4 pb-4 flex justify-center">
+                  <StartTimePicker
+                    value={planningStartTime}
+                    onChange={(v) => onPlanningStartTimeChange(v)}
+                  />
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       )}
 
       {/* Clear all confirmation modal */}

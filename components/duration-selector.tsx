@@ -47,14 +47,14 @@ export function DurationSelector({ value, onChange, isLoggedIn, resetKey }: {
         <span className="font-medium">Duration</span>
         <span className="text-primary font-semibold tabular-nums">{formatPresetDuration(value)}</span>
       </div>
-      <div role="group" aria-label="Duration presets" className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Duration presets" className="flex gap-2 overflow-x-auto overscroll-x-contain pb-2">
         {presets.map((seconds) => (
           <button
             key={seconds}
             type="button"
             aria-pressed={value === seconds}
             onClick={() => { setExpanded(false); onChange(seconds); }}
-            className={`min-h-11 min-w-11 flex-1 rounded-full px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+            className={`min-h-11 min-w-11 shrink-0 rounded-full px-3 py-2 text-sm font-semibold whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
               value === seconds ? 'bg-primary text-primary-foreground' : 'bg-secondary/70 text-foreground hover:bg-primary/15'
             }`}
           >
