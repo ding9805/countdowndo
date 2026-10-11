@@ -12,9 +12,10 @@ import { TaskBankPickerDialog } from './task-bank/task-bank-picker-dialog';
 import { PageToggle } from './page-toggle';
 import { ThemeToggle } from './theme-toggle';
 import type { SessionView } from './session-view-toggle';
-import { Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
+import { Info, Timer, ListChecks, LogOut, LogIn, AlertTriangle, X, History, BarChart3 } from 'lucide-react';
 import { signOut, useSession } from 'next-auth/react';
 import Link from 'next/link';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 export function SequenceApp() {
   const { data: authSession, status: authStatus } = useSession() || {};
@@ -97,6 +98,16 @@ export function SequenceApp() {
             <h1 className="font-display text-lg sm:text-xl font-bold tracking-tight text-foreground">
               CountdownDo
             </h1>
+            <Popover>
+              <PopoverTrigger asChild>
+                <button type="button" aria-label="How to plan a session" className="flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground hover:bg-secondary/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <Info className="h-4 w-4" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="text-sm" sideOffset={8}>
+                Plan your tasks with cumulative time-blocking, then start the session to track everything at once.
+              </PopoverContent>
+            </Popover>
           </div>
           <div className="flex items-center gap-1.5 sm:gap-4 flex-wrap">
             <PageToggle />
@@ -158,12 +169,6 @@ export function SequenceApp() {
       )}
 
       <div className="max-w-[1200px] mx-auto px-6 py-8">
-        <div className="mb-8 text-center">
-          <p className="text-muted-foreground text-sm">
-            Plan your tasks with cumulative time-blocking, then start the session to track everything at once.
-          </p>
-        </div>
-
         <div className={`grid grid-cols-1 ${isLoggedIn ? 'lg:grid-cols-[1fr_340px]' : ''} gap-8`}>
           <div>
             {!isSession ? (

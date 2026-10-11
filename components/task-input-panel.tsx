@@ -6,6 +6,7 @@ import { TaskNameAutocomplete } from './task-name-autocomplete';
 import { ColorPicker } from './color-picker';
 import { formatDuration } from '@/lib/timer-utils';
 import { TimePicker } from './time-picker';
+import { DurationSelector } from './duration-selector';
 import { StartTimePicker } from './start-time-picker';
 import { SessionTimeline } from './session-timeline';
 import { SessionViewToggle } from './session-view-toggle';
@@ -66,7 +67,8 @@ export function TaskInputPanel({
   const [selectedColor, setSelectedColor] = useState<TaskColorId>('orange');
   const [editColor, setEditColor] = useState<TaskColorId>('orange');
   const [addTaskCollapsed, setAddTaskCollapsed] = useState(false);
-  const [startTimeCollapsed, setStartTimeCollapsed] = useState(false);
+  const [startTimeCollapsed, setStartTimeCollapsed] = useState(true);
+  const [durationReset, setDurationReset] = useState(0);
   const dragItem = useRef<number | null>(null);
   const dragOverItem = useRef<number | null>(null);
   // Track known task IDs to prevent entrance animation flicker on existing tasks
@@ -84,6 +86,7 @@ export function TaskInputPanel({
     onAddTask?.(name, duration ?? 300, position, selectedColor);
     setTaskName('');
     setDuration(300);
+    setDurationReset((reset) => reset + 1);
   };
 
   const isAsc = taskOrder === 'asc';
@@ -274,14 +277,8 @@ export function TaskInputPanel({
                     </div>
                   </div>
 
-                  {/* Right: Time picker scroll wheels */}
-                  <div className="bg-secondary/20 rounded-xl p-3 flex items-center justify-center sm:justify-start border border-border/30">
-                    <TimePicker
-                      onSelect={(s: number) => setDuration(s)}
-                      initialHours={Math.floor((duration ?? 300) / 3600)}
-                      initialMinutes={Math.floor(((duration ?? 300) % 3600) / 60)}
-                      initialSeconds={(duration ?? 300) % 60}
-                    />
+                  <div className="w-full sm:w-72 sm:shrink-0">
+                    <DurationSelector value={duration} onChange={setDuration} isLoggedIn={isLoggedIn} resetKey={durationReset} />
                   </div>
                 </div>
               </div>
@@ -296,6 +293,8 @@ export function TaskInputPanel({
           <button
             type="button"
             onClick={() => setStartTimeCollapsed(!startTimeCollapsed)}
+            aria-expanded={!startTimeCollapsed}
+            aria-controls="planning-start-time"
             className="w-full flex items-center justify-between px-4 py-3 hover:bg-black/[0.03] dark:hover:bg-white/[0.02] transition-colors"
           >
             <div className="flex items-center gap-2">
@@ -325,7 +324,7 @@ export function TaskInputPanel({
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="px-4 pb-4 flex justify-center">
+                <div id="planning-start-time" className="px-4 pb-4 flex justify-center">
                   <StartTimePicker
                     value={planningStartTime}
                     onChange={(v) => onPlanningStartTimeChange(v)}
