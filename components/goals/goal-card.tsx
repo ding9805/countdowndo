@@ -5,11 +5,12 @@ import { Goal, getTaskColorHex } from '@/lib/types';
 import { Pencil, Copy, Trash2, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Input } from '@/components/ui/input';
-import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid } from '@/lib/goal-utils';
+import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid, goalTimeBehindSeconds, formatTimeBehind } from '@/lib/goal-utils';
 import { formatDueDate, isOverdue } from '@/lib/task-bank-utils';
 
 interface GoalCardProps {
   goal: Goal;
+  today?: Date;
   onEdit: (goal: Goal) => void;
   onDuplicate: (goal: Goal) => void;
   onDelete: (id: string) => void;
@@ -17,14 +18,15 @@ interface GoalCardProps {
   onRegenerate: (id: string) => Promise<void> | void;
 }
 
-export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
+export function GoalCard({ goal, today, onEdit, onDuplicate, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
   const [editingProgress, setEditingProgress] = useState(false);
   const [progressInput, setProgressInput] = useState('');
   const [regenerating, setRegenerating] = useState(false);
 
   const complete = isGoalComplete(goal);
   const progress = goalProgress(goal);
-  const pace = complete ? null : paceStatus(goal);
+  const pace = complete ? null : paceStatus(goal, today);
+  const timeBehind = goalTimeBehindSeconds(goal, today);
   const orphaned = !complete && !goal.bankTaskId;
 
   const startProgressEdit = () => {
@@ -146,6 +148,12 @@ export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValu
           </button>
         </div>
       </div>
+
+      {!complete && (
+        <p className={`mt-3 text-xs ${timeBehind > 0 ? 'text-destructive' : 'text-muted-foreground'}`}>
+          Estimated time behind: <span className="font-semibold tabular-nums">{formatTimeBehind(timeBehind)}</span>
+        </p>
+      )}
 
       <div className="mt-3">
         <div className="h-2 rounded-full bg-secondary/60 overflow-hidden">

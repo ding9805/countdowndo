@@ -171,6 +171,31 @@ export function paceStatus(
   return { status: 'on-pace', delta };
 }
 
+// Estimated work needed to catch up to today's pace, not calendar time overdue.
+// Partial intervals count proportionally. Use the same tolerance as the badge.
+export function goalTimeBehindSeconds(
+  goal: Pick<GoalLike, 'startValue' | 'targetValue' | 'currentValue' | 'intervals'> & {
+    startDate: string; dueDate: string; intervalSeconds: number;
+  },
+  today: Date = new Date()
+): number {
+  if (isGoalComplete(goal)) return 0;
+  const size = intervalSize(goal);
+  if (!Number.isFinite(size) || size <= 0 || !Number.isFinite(goal.intervalSeconds) || goal.intervalSeconds <= 0) return 0;
+  const pace = paceStatus(goal, today);
+  if (pace.status !== 'behind') return 0;
+  const seconds = (-pace.delta / size) * goal.intervalSeconds;
+  return Number.isFinite(seconds) ? seconds : 0;
+}
+
+export function formatTimeBehind(seconds: number): string {
+  // Round only for display, after summing, and keep small backlogs visible.
+  const minutes = Math.ceil(Math.max(0, seconds) / 60);
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours > 0 ? `${hours}h${remainder ? ` ${remainder}m` : ''}` : `${minutes}m`;
+}
+
 // The day a new goal starts: the user's own date, sent by the browser. The
 // server's clock is UTC on Vercel, a day behind for the early hours of every
 // day east of UTC (midnight to 8 AM in Singapore), and a goal started
