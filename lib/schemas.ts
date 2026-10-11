@@ -117,7 +117,7 @@ export const goalCreateSchema = z
     color: taskColorSchema.optional(),
     tags: tagsSchema.optional(),
     dueDate: dueDateSchema,
-    // The browser's date, so the goal starts on the user's day — see goalStartDate.
+    // Optional for older clients; new clients allow an explicit start date.
     startDate: z.string().date().optional(),
   })
   .refine((g) => g.targetValue > g.startValue, {
@@ -135,6 +135,7 @@ export const goalUpdateSchema = z.object({
   intervalSeconds: durationSchema.optional(),
   color: taskColorSchema.optional(),
   tags: tagsSchema.optional(),
+  startDate: z.string().date().optional(),
   dueDate: dueDateSchema.optional(),
 });
 

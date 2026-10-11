@@ -196,17 +196,10 @@ export function formatTimeBehind(seconds: number): string {
   return hours > 0 ? `${hours}h${remainder ? ` ${remainder}m` : ''}` : `${minutes}m`;
 }
 
-// The day a new goal starts: the user's own date, sent by the browser. The
-// server's clock is UTC on Vercel, a day behind for the early hours of every
-// day east of UTC (midnight to 8 AM in Singapore), and a goal started
-// "yesterday" shows as Behind straight away. Every timezone's date is within
-// a day of UTC's, so a date further off than that, or none (a page loaded
-// before the browser sent one), falls back to the server's.
+// Preserve an explicitly chosen date (validated by the API schema). Older
+// clients that omit it retain the server-date fallback.
 export function goalStartDate(clientDate: string | undefined, now: Date = new Date()): string {
-  const serverDate = now.toISOString().slice(0, 10);
-  if (!clientDate) return serverDate;
-  const daysApart = Math.abs(Date.parse(clientDate) - Date.parse(serverDate)) / 86_400_000;
-  return daysApart <= 1 ? clientDate : serverDate;
+  return clientDate ?? now.toISOString().slice(0, 10);
 }
 
 export function todayLocalDateString(now: Date = new Date()): string {

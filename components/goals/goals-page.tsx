@@ -87,8 +87,7 @@ export function GoalsPage() {
       const res = await fetch(isEdit ? `/api/goals/${editingGoal!.id}` : '/api/goals', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // A new goal starts today by this device's calendar, not the server's.
-        body: JSON.stringify(isEdit ? data : { ...data, startDate: todayLocalDateString() }),
+        body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to save goal');
       const saved = await res.json();

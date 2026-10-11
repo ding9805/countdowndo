@@ -44,6 +44,11 @@ export async function POST(req: NextRequest) {
     }
     const { name, unit, startValue, targetValue, intervals, intervalSeconds, color, dueDate, tags, startDate } = parsed.data;
 
+    const effectiveStartDate = goalStartDate(startDate);
+    if (effectiveStartDate > dueDate) {
+      return NextResponse.json({ error: 'Due date must be on or after the start date' }, { status: 400 });
+    }
+
     // Only fetch the tag corpus when tags were actually provided — same skip
     // optimization as POST /api/task-bank.
     const normalizedTags = tags && tags.length > 0
@@ -64,7 +69,7 @@ export async function POST(req: NextRequest) {
             intervalSeconds: Math.round(intervalSeconds),
             color: color || 'orange',
             tags: normalizedTags,
-            startDate: goalStartDate(startDate),
+            startDate: effectiveStartDate,
             dueDate,
           },
         });

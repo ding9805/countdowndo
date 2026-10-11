@@ -64,6 +64,9 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
         if (merged.targetValue <= merged.startValue) {
           return { error: 'Target must be greater than the starting value', status: 400 } as const;
         }
+        if ((data.startDate !== undefined || data.dueDate !== undefined) && merged.startDate > merged.dueDate) {
+          return { error: 'Due date must be on or after the start date', status: 400 } as const;
+        }
         // Clamp progress into the (possibly new) range, then recompute
         // completion. Progress is deliberately NOT snapped onto the new
         // interval grid — that would rewrite what the user actually did. The
@@ -84,6 +87,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
             intervals: merged.intervals,
             intervalSeconds: Math.round(merged.intervalSeconds),
             color: merged.color,
+            startDate: merged.startDate,
             dueDate: merged.dueDate,
             completedAt: complete ? (existing.completedAt ?? new Date()) : null,
             ...(normalizedTags !== undefined ? { tags: normalizedTags } : {}),
