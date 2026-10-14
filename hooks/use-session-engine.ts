@@ -79,7 +79,18 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const [sessionMode, setSessionMode] = useState<SessionMode>('continuous');
   const [sessionTotalSeconds, setSessionTotalSeconds] = useState<number>(0);
   const [taskOrder, setTaskOrder] = useState<TaskOrder>('desc');
-  const [planningStartTime, setPlanningStartTime] = useState<string | null>(null);
+  const [planningStartTime, updatePlanningStartTime] = useState<string | null>(null);
+  const planningUsesNow = useRef(true);
+  const refreshPlanningTime = useCallback(() => {
+    if (!planningUsesNow.current) return;
+    const now = new Date();
+    updatePlanningStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+  }, []);
+  const setPlanningStartTime = useCallback((value: string | null) => {
+    planningUsesNow.current = value === null;
+    if (value === null) refreshPlanningTime();
+    else updatePlanningStartTime(value);
+  }, [refreshPlanningTime]);
 
   // The session state as of the latest render. Saves are built from this when
   // they're sent, not from the closure of the render that requested them: an
@@ -140,18 +151,22 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // list), so it wouldn't be caught by a simple "isDone" scan at stop time.
   const pendingOneOffBankTaskIdsRef = useRef<Set<string>>(new Set());
 
-  // Load taskOrder from localStorage on mount + set initial planning start time
+  // Restore task order and keep the default estimator anchored to now.
   useEffect(() => {
     try {
       const saved = localStorage.getItem('countdowndo-task-order');
       if (saved === 'asc' || saved === 'desc') setTaskOrder(saved);
     } catch {}
-    // Default planning start time to current time
-    const now = new Date();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
-    setPlanningStartTime(`${hh}:${mm}`);
-  }, []);
+    refreshPlanningTime();
+    const interval = setInterval(refreshPlanningTime, 1000);
+    window.addEventListener('focus', refreshPlanningTime);
+    document.addEventListener('visibilitychange', refreshPlanningTime);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', refreshPlanningTime);
+      document.removeEventListener('visibilitychange', refreshPlanningTime);
+    };
+  }, [refreshPlanningTime]);
 
   const toggleTaskOrder = useCallback(() => {
     setTaskOrder(prev => {
@@ -1178,6 +1193,10 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   // Undo a queued bank copy without completing it or mutating its bank/goal.
   const handleRemoveFromBank = (bankTaskId: string, name?: string) => {
+    // Deleting a completed trailing task preserves its time in the session.
+    // Carry that reserved time through undo, including multiple queued undos.
+    const trailingReservedSeconds = Math.max(0,
+      sessionTotalSeconds - (tasks[tasks.length - 1]?.cumulativeSeconds ?? 0));
     setTasks((previous: Task[]) => {
       const matches = (task: Task) => task.bankTaskId === bankTaskId && !task.isDone;
       let index = previous.length - 1;
@@ -1199,7 +1218,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           })
         : recalculateCumulativeTimes(remaining);
       const total = active
-        ? Math.max(0, (previous[previous.length - 1]?.cumulativeSeconds ?? 0) - removed.durationSeconds)
+        ? Math.max(0, (previous[previous.length - 1]?.cumulativeSeconds ?? 0) + trailingReservedSeconds - removed.durationSeconds)
         : (updated[updated.length - 1]?.cumulativeSeconds ?? 0);
       setSessionTotalSeconds(total);
       saveSessionToDb(updated, undefined, undefined, undefined, undefined, total);

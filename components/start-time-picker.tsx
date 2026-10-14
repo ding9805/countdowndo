@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useRef, useEffect, useCallback, useMemo } from 'react';
 
 interface StartTimePickerProps {
   value: string | null; // "HH:MM" 24-hour format
-  onChange: (value: string) => void;
+  onChange: (value: string | null) => void;
 }
 
 const ITEM_HEIGHT = 36;
@@ -32,68 +32,33 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
     };
   };
 
-  const initial = parseValue(value);
-  const [hour12, setHour12] = useState(initial.hour12);
-  const [minute, setMinute] = useState(initial.minute);
-  const [period, setPeriod] = useState<'AM' | 'PM'>(initial.period);
-
+  // The parent owns the selected time so a live "now" estimate can update
+  // open wheels without the old wheel state overwriting it.
+  const { hour12, minute, period } = parseValue(value);
   const hourRef = useRef<HTMLDivElement>(null);
   const minuteRef = useRef<HTMLDivElement>(null);
-
   const hours = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
-  // 5-minute steps, plus the initial minute when it's off-grid so the wheel
-  // can show (and keep) the exact current time until the user scrolls away.
-  // extraMinute starts as the initial minute and is replaced by "Now".
-  const [extraMinute, setExtraMinute] = useState(initial.minute);
   const minutes = useMemo(() => {
-    const steps = Array.from({ length: 12 }, (_, i) => i * 5); // 0, 5, 10...55
-    if (!steps.includes(extraMinute)) steps.push(extraMinute);
+    const steps = Array.from({ length: 12 }, (_, i) => i * 5);
+    if (!steps.includes(minute)) steps.push(minute);
     return steps.sort((a, b) => a - b);
-  }, [extraMinute]);
+  }, [minute]);
 
-  // Bumped by "Now" to scroll the wheels once the minute list has re-rendered.
-  const [nowTick, setNowTick] = useState(0);
-  const setToNow = () => {
-    const now = new Date();
-    setExtraMinute(now.getMinutes());
-    setHour12(now.getHours() % 12 || 12);
-    setMinute(now.getMinutes());
-    setPeriod(now.getHours() >= 12 ? 'PM' : 'AM');
-    setNowTick((t) => t + 1);
-  };
-
-  useEffect(() => {
-    if (nowTick === 0) return;
-    const hIdx = hours.indexOf(hour12);
-    const mIdx = minutes.indexOf(minute);
-    if (hIdx >= 0) hourRef.current?.scrollTo({ top: hIdx * ITEM_HEIGHT, behavior: 'smooth' });
-    if (mIdx >= 0) minuteRef.current?.scrollTo({ top: mIdx * ITEM_HEIGHT, behavior: 'smooth' });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nowTick]);
-
-  // Emit onChange — only when the wheel state differs from the prop, so
-  // mounting doesn't re-emit (or rewrite) the value it was given.
-  useEffect(() => {
-    let h24 = hour12 % 12;
-    if (period === 'PM') h24 += 12;
-    const hStr = String(h24).padStart(2, '0');
-    const mStr = String(minute).padStart(2, '0');
-    const next = `${hStr}:${mStr}`;
+  const selectTime = (hour: number, min: number, meridiem: 'AM' | 'PM') => {
+    const hour24 = hour % 12 + (meridiem === 'PM' ? 12 : 0);
+    const next = `${String(hour24).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
     if (next !== value) onChange(next);
-  }, [hour12, minute, period, onChange, value]);
+  };
+  const setHour12 = (hour: number) => selectTime(hour, minute, period);
+  const setMinute = (min: number) => selectTime(hour12, min, period);
+  const setPeriod = (meridiem: 'AM' | 'PM') => selectTime(hour12, minute, meridiem);
+  const setToNow = () => onChange(null);
 
-  // Scroll to initial position
   useEffect(() => {
-    const hIdx = hours.indexOf(initial.hour12);
-    const mIdx = minutes.indexOf(initial.minute);
-    if (hourRef.current && hIdx >= 0) {
-      hourRef.current.scrollTop = hIdx * ITEM_HEIGHT;
-    }
-    if (minuteRef.current && mIdx >= 0) {
-      minuteRef.current.scrollTop = mIdx * ITEM_HEIGHT;
-    }
+    if (hourRef.current) hourRef.current.scrollTop = hours.indexOf(hour12) * ITEM_HEIGHT;
+    if (minuteRef.current) minuteRef.current.scrollTop = minutes.indexOf(minute) * ITEM_HEIGHT;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [hour12, minute, minutes]);
 
   const handleScroll = useCallback(
     (ref: React.RefObject<HTMLDivElement>, items: number[], setter: (v: number) => void) => {
@@ -135,8 +100,6 @@ export function StartTimePicker({ value, onChange }: StartTimePickerProps) {
             style={{ height: ITEM_HEIGHT }}
             onClick={() => {
               setter(item);
-              const idx = items.indexOf(item);
-              ref?.current?.scrollTo({ top: idx * ITEM_HEIGHT, behavior: 'smooth' });
             }}
           >
             {String(item).padStart(2, '0')}
