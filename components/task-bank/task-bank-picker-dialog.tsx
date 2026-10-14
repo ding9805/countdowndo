@@ -10,6 +10,8 @@ import { TaskBankCard } from './task-bank-card';
 import { TagFilterBar } from './tag-filter-bar';
 import { Archive, LogIn } from 'lucide-react';
 import { AnimatePresence } from 'framer-motion';
+import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
 import { countQueuedBankCopies } from '@/lib/task-bank-utils';
 
@@ -18,9 +20,10 @@ interface TaskBankPickerDialogProps {
   onOpenChange: (open: boolean) => void;
   onConfirm: (picked: PickedBankTask[]) => void;
   sessionTasks: Task[];
+  onRemove: (bankTaskId: string, name?: string) => void;
 }
 
-export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTasks }: TaskBankPickerDialogProps) {
+export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, onRemove, sessionTasks }: TaskBankPickerDialogProps) {
   const { data: authSession, status: authStatus } = useSession() || {};
   const isLoggedIn = authStatus === 'authenticated' && !!authSession?.user;
 
@@ -28,25 +31,11 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTags, setActiveTags] = useState<string[]>([]);
-  // id -> how many times it has been added this visit. Plain one-offs cap at
-  // 1; goal cursor tasks cap at the goal's remaining intervals (each add is
-  // the next chunk); everything else can be added over and over.
-  const [addCounts, setAddCounts] = useState<Record<string, number>>({});
-  // Mirror of addCounts read synchronously by handlePick. Two clicks in the
-  // same React batch (a double-click) would otherwise both see the pre-batch
-  // state and build the same goal chunk name twice.
-  const addCountsRef = useRef<Record<string, number>>({});
-  const totalAdded = useMemo(
-    () => Object.values(addCounts).reduce((sum, n) => sum + n, 0),
-    [addCounts]
-  );
-  // Copies of each task already waiting in the session when the dialog
-  // opened. Adds made here stack on top of them: they count toward the same
-  // caps, and a goal's chunk names carry on after them instead of starting
-  // over at the goal's next chunk on every visit.
-  const [queuedBefore, setQueuedBefore] = useState<Record<string, number>>({});
-  const sessionTasksRef = useRef(sessionTasks);
-  sessionTasksRef.current = sessionTasks;
+  const [search, setSearch] = useState('');
+  const queuedCounts = countQueuedBankCopies(sessionTasks);
+  const queuedCountsRef = useRef(queuedCounts);
+  queuedCountsRef.current = queuedCounts;
+  const totalQueued = Object.values(queuedCounts).reduce((sum, count) => sum + count, 0);
 
   const loadBankData = useCallback(async () => {
     try {
@@ -66,9 +55,8 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
   useEffect(() => {
     if (!open || !isLoggedIn) return;
     setLoading(true);
-    addCountsRef.current = {};
-    setAddCounts({});
-    setQueuedBefore(countQueuedBankCopies(sessionTasksRef.current));
+    setSearch('');
+    toast.dismiss('bank-add');
     setActiveTags([]);
     loadBankData().finally(() => setLoading(false));
   }, [open, isLoggedIn, loadBankData]);
@@ -89,9 +77,12 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
   }, [tasks]);
 
   const filteredTasks = useMemo(() => {
-    if (activeTags.length === 0) return tasks;
-    return tasks.filter((t) => t.tags.some((tag) => activeTags.includes(tag)));
-  }, [tasks, activeTags]);
+    const query = search.trim().toLocaleLowerCase();
+    return tasks.filter((task) =>
+      (!query || task.name.toLocaleLowerCase().includes(query)) &&
+      (activeTags.length === 0 || task.tags.some((tag) => activeTags.includes(tag)))
+    );
+  }, [tasks, activeTags, search]);
 
   // bankTaskId -> the goal whose cursor task it is, used to increment repeated
   // adds of that task into the session (each copy is the next interval chunk).
@@ -110,8 +101,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
   const handlePick = (id: string) => {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
-    const added = addCountsRef.current[id] ?? 0;
-    const queued = (queuedBefore[id] ?? 0) + added;
+    const queued = queuedCountsRef.current[id] ?? 0;
     const goal = goalByCursorId[id];
     // A one-off represents a single unit of work, but a goal's cursor task is
     // stored as a one-off and still has further interval chunks to hand out.
@@ -126,14 +116,21 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
       name = cursorTaskNameOffset(goal, queued);
     }
 
-    addCountsRef.current = { ...addCountsRef.current, [id]: added + 1 };
-    setAddCounts(addCountsRef.current);
+    queuedCountsRef.current = { ...queuedCountsRef.current, [id]: queued + 1 };
     onConfirm([{ bankTask: task, name }]);
+  };
+
+  const handleRemove = (id: string) => {
+    const count = queuedCountsRef.current[id] ?? 0;
+    if (count === 0) return;
+    queuedCountsRef.current = { ...queuedCountsRef.current, [id]: count - 1 };
+    const goal = goalByCursorId[id];
+    onRemove(id, goal ? cursorTaskNameOffset(goal, count - 1) : undefined);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-lg max-h-[85dvh] flex flex-col p-4 sm:p-6">
         <DialogHeader>
           <DialogTitle>Add from Task Bank</DialogTitle>
         </DialogHeader>
@@ -152,7 +149,8 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
           </div>
         ) : (
           <>
-            <div className="overflow-y-auto flex-1 space-y-3 -mx-1 px-1">
+            <Input aria-label="Search Task Bank" placeholder="Search tasks…" value={search} onChange={(event) => setSearch(event.target.value)} className="shrink-0 text-base" />
+            <div className="overflow-y-auto overscroll-contain min-h-0 flex-1 space-y-3 -mx-1 px-1">
               <TagFilterBar allTags={allTags} activeTags={activeTags} onToggle={toggleTag} onClear={() => setActiveTags([])} />
 
               {loading ? (
@@ -160,7 +158,7 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
               ) : filteredTasks.length === 0 ? (
                 <div className="text-center py-10">
                   <p className="text-sm text-muted-foreground mb-3">
-                    {tasks.length === 0 ? 'Your task bank is empty.' : 'No tasks match the selected tags.'}
+                    {tasks.length === 0 ? 'Your task bank is empty.' : 'No tasks match your search or tags.'}
                   </p>
                   {tasks.length === 0 && (
                     <Link href="/bank" className="text-sm text-primary hover:underline font-medium">
@@ -176,8 +174,12 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
                         key={task.id}
                         task={task}
                         selectable
-                        selected={(addCounts[task.id] ?? 0) + (queuedBefore[task.id] ?? 0) > 0}
-                        addedCount={addCounts[task.id] ?? 0}
+                        selected={(queuedCounts[task.id] ?? 0) > 0}
+                        addedCount={queuedCounts[task.id] ?? 0}
+                        addDisabled={goalByCursorId[task.id]
+                          ? (queuedCounts[task.id] ?? 0) >= remainingIntervals(goalByCursorId[task.id])
+                          : !!task.isOneOff && (queuedCounts[task.id] ?? 0) > 0}
+                        onRemove={handleRemove}
                         onToggleSelect={handlePick}
                       />
                     ))}
@@ -186,13 +188,13 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, sessionTas
               )}
             </div>
 
-            <DialogFooter className="pt-2">
+            <DialogFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t pt-3">
               <span className="text-xs text-muted-foreground mr-auto self-center">
-                {totalAdded > 0 ? `${totalAdded} added` : 'Tap a task to add it'}
+                {totalQueued > 0 ? `${totalQueued} queued` : 'Tap + to add a task'}
               </span>
               <Button
                 onClick={() => onOpenChange(false)}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground"
+                className="min-h-11 min-w-24 bg-primary hover:bg-primary/90 text-primary-foreground"
               >
                 Done
               </Button>

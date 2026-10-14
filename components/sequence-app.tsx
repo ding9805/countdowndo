@@ -80,6 +80,7 @@ export function SequenceApp() {
     handleMarkDone,
     handleAddTask,
     handleAddFromBank,
+    handleRemoveFromBank,
     handleDeleteTask,
     handleClearAll,
     handleEditTask,
@@ -272,7 +273,8 @@ export function SequenceApp() {
       <TaskBankPickerDialog
         open={bankPickerOpen}
         onOpenChange={setBankPickerOpen}
-        onConfirm={handleAddFromBank}
+        onConfirm={(picked) => handleAddFromBank(picked, { silent: true })}
+        onRemove={handleRemoveFromBank}
         sessionTasks={tasks}
       />
     </div>

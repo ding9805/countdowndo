@@ -768,3 +768,49 @@ describe('a Stop the server fails to carry out', () => {
     expect(taskNames(sessionRow.tasks)).toEqual(['Next thing']);
   });
 });
+
+describe('undoing queued bank copies with minus', () => {
+  test('rapid removals remove one each and save the reduced staged duration', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([1, 2, 3].map(() => ({ bankTask: goalCursor })), { silent: true });
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await advance(1000);
+    expect(engine.current.tasks).toHaveLength(1);
+    expect(engine.current.sessionTotalSeconds).toBe(600);
+    expect(lastSessionPost().body.tasks).toHaveLength(1);
+    expect(goalSteps()).toEqual([]);
+  });
+
+  test('undo during a running session does not complete a goal or consume a one-off', async () => {
+    const engine = await startGoalSession();
+    const before = sentRequests.length;
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await advance(1000);
+    expect(engine.current.tasks).toHaveLength(0);
+    expect(engine.current.sessionTotalSeconds).toBe(0);
+    expect(sentRequests.slice(before).filter((r) => r.url !== '/api/active-session')).toEqual([]);
+    expect(goalSteps()).toEqual([]);
+  });
+
+  test('removes the furthest goal interval after reordering and leaves completed copies alone', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([{ bankTask: goalCursor, name: 'First' }, { bankTask: goalCursor, name: 'Second' }]);
+    await flushMicrotasks();
+    engine.current.handleReorder([...engine.current.tasks].reverse());
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id, 'Second');
+    await flushMicrotasks();
+    expect(engine.current.tasks.map((t) => t.name)).toEqual(['First']);
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await flushMicrotasks();
+    expect(engine.current.tasks).toHaveLength(1);
+    expect(engine.current.tasks[0].isDone).toBe(true);
+  });
+});
