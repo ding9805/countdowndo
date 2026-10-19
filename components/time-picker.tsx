@@ -14,44 +14,45 @@ const VISIBLE_ITEMS = 3;
 const PADDING_ITEMS = Math.floor(VISIBLE_ITEMS / 2);
 
 export function TimePicker({ onSelect, initialSeconds = 0, initialMinutes = 5, initialHours = 0 }: TimePickerProps) {
-  const hours = Array.from({ length: 13 }, (_, i: number) => i); // 0..12
-  const minutes = Array.from({ length: 60 }, (_, i: number) => i); // 0..59
-  const seconds = Array.from({ length: 12 }, (_, i: number) => i * 5); // 0, 5, 10..55
-
-  const [selectedHour, setSelectedHour] = useState(initialHours ?? 0);
-  const [selectedMinute, setSelectedMinute] = useState(initialMinutes ?? 5);
-  const [selectedSecond, setSelectedSecond] = useState(initialSeconds ?? 0);
+  const [duration, setDuration] = useState(() =>
+    Math.max(5, Math.min(12 * 3600, initialHours * 3600 + initialMinutes * 60 + initialSeconds))
+  );
+  const selectedHour = Math.floor(duration / 3600);
+  const selectedMinute = Math.floor((duration % 3600) / 60);
+  const selectedSecond = duration % 60;
+  const hours = Array.from({ length: 13 }, (_, i) => i);
+  // At the maximum duration, minutes and seconds must both be zero.
+  const minutes = selectedHour === 12 ? [0] : Array.from({ length: 60 }, (_, i) => i);
+  const seconds = selectedHour === 12 ? [0] : Array.from({ length: 12 }, (_, i) => i * 5)
+    .filter(second => selectedHour > 0 || selectedMinute > 0 || second > 0);
+  // Preserve exact durations from saved tasks, even between five-second steps.
+  if (!seconds.includes(selectedSecond)) seconds.push(selectedSecond);
+  seconds.sort((a, b) => a - b);
 
   const hourRef = useRef<HTMLDivElement>(null);
   const minuteRef = useRef<HTMLDivElement>(null);
   const secondRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const totalSeconds = ((selectedHour ?? 0) * 3600) + ((selectedMinute ?? 0) * 60) + (selectedSecond ?? 0);
-    // Minimum 5 seconds to prevent zero-duration tasks
-    const minSeconds = 5;
-    const maxSeconds = 12 * 3600;
-    onSelect?.(Math.max(minSeconds, Math.min(maxSeconds, totalSeconds)));
-  }, [selectedHour, selectedMinute, selectedSecond, onSelect]);
+  const selectDuration = (hour: number, minute: number, second: number) => {
+    setDuration(Math.max(5, Math.min(12 * 3600, hour * 3600 + minute * 60 + second)));
+  };
+  const setSelectedHour = (hour: number) => selectDuration(hour, selectedMinute, selectedSecond);
+  const setSelectedMinute = (minute: number) => selectDuration(selectedHour, minute, selectedSecond);
+  const setSelectedSecond = (second: number) => selectDuration(selectedHour, selectedMinute, second);
 
-  // Scroll to initial position
   useEffect(() => {
-    const hIdx = hours.indexOf(initialHours ?? 0);
-    const mIdx = minutes.indexOf(initialMinutes ?? 5);
-    // Find closest seconds index
-    const sVal = initialSeconds ?? 0;
-    const sIdx = seconds.reduce((closest, val, idx) =>
-      Math.abs(val - sVal) < Math.abs(seconds[closest] - sVal) ? idx : closest, 0);
-    if (hourRef.current && hIdx >= 0) {
-      hourRef.current.scrollTop = hIdx * ITEM_HEIGHT;
-    }
-    if (minuteRef.current && mIdx >= 0) {
-      minuteRef.current.scrollTop = mIdx * ITEM_HEIGHT;
-    }
-    if (secondRef.current && sIdx >= 0) {
-      secondRef.current.scrollTop = sIdx * ITEM_HEIGHT;
-    }
-  }, []);
+    onSelect(duration);
+  }, [duration, onSelect]);
+
+  // Keep all wheels aligned with the actual duration, including when a limit
+  // corrects another column (12 hours clears minutes and seconds).
+  useEffect(() => {
+    if (hourRef.current) hourRef.current.scrollTop = selectedHour * ITEM_HEIGHT;
+    if (minuteRef.current) minuteRef.current.scrollTop = selectedMinute * ITEM_HEIGHT;
+    if (secondRef.current) secondRef.current.scrollTop = seconds.indexOf(selectedSecond) * ITEM_HEIGHT;
+    // The options are derived from duration, so it also covers list changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [duration]);
 
   const handleScroll = useCallback((ref: React.RefObject<HTMLDivElement>, items: number[], setter: (v: number) => void) => {
     const el = ref?.current;
@@ -88,8 +89,6 @@ export function TimePicker({ onSelect, initialSeconds = 0, initialMinutes = 5, i
               style={{ height: ITEM_HEIGHT }}
               onClick={() => {
                 setter(item);
-                const idx = (items ?? []).indexOf(item);
-                ref?.current?.scrollTo({ top: idx * ITEM_HEIGHT, behavior: 'smooth' });
               }}
             >
               {String(item ?? 0).padStart(2, '0')}
@@ -102,12 +101,15 @@ export function TimePicker({ onSelect, initialSeconds = 0, initialMinutes = 5, i
   );
 
   return (
-    <div className="flex items-center gap-3">
-      {renderColumn(hours, selectedHour, hourRef, setSelectedHour, 'Hours')}
-      <span className="text-2xl font-mono text-muted-foreground mt-5">:</span>
-      {renderColumn(minutes, selectedMinute, minuteRef, setSelectedMinute, 'Min')}
-      <span className="text-2xl font-mono text-muted-foreground mt-5">:</span>
-      {renderColumn(seconds, selectedSecond, secondRef, setSelectedSecond, 'Sec')}
+    <div className="flex flex-col items-center gap-2">
+      <div className="flex items-center gap-3">
+        {renderColumn(hours, selectedHour, hourRef, setSelectedHour, 'Hours')}
+        <span className="text-2xl font-mono text-muted-foreground mt-5">:</span>
+        {renderColumn(minutes, selectedMinute, minuteRef, setSelectedMinute, 'Min')}
+        <span className="text-2xl font-mono text-muted-foreground mt-5">:</span>
+        {renderColumn(seconds, selectedSecond, secondRef, setSelectedSecond, 'Sec')}
+      </div>
+      <p className="text-xs text-muted-foreground">5 seconds minimum · 12 hours maximum</p>
     </div>
   );
 }

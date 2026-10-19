@@ -75,10 +75,22 @@ describe('a new goal’s start date', () => {
     expect(goal.startDate).toBe('2026-10-02');
   });
 
-  test('accepts a date up to a day either side of the server’s, as every timezone’s is, but not further', () => {
-    expect(goalStartDate('2026-10-01', SINGAPORE_MORNING)).toBe('2026-10-01');
-    expect(goalStartDate('2026-10-03', SINGAPORE_MORNING)).toBe('2026-10-03');
-    expect(goalStartDate('2026-09-30', SINGAPORE_MORNING)).toBe('2026-10-02');
-    expect(goalStartDate('2026-10-04', SINGAPORE_MORNING)).toBe('2026-10-02');
+  test('preserves an explicitly backdated start date', async () => {
+    const goal = await createGoal({ startDate: '2025-09-01' });
+    expect(goal.startDate).toBe('2025-09-01');
+  });
+
+  test('preserves an explicitly scheduled future date', () => {
+    expect(goalStartDate('2026-10-20', SINGAPORE_MORNING)).toBe('2026-10-20');
+  });
+
+  test.each(['2026-02-30', 'not-a-date', '2026-11-01'])('rejects invalid or reversed start date %s', async (startDate) => {
+    const response = await POST(new Request('http://localhost/api/goals', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Read', unit: 'pages', startValue: 0, targetValue: 100,
+        intervals: 10, intervalSeconds: 1500, startDate, dueDate: '2026-10-31' }),
+    }) as any);
+    expect(response.status).toBe(400);
+    expect(createdGoals).toHaveLength(0);
   });
 });

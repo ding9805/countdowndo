@@ -3,8 +3,7 @@
 import React from 'react';
 import { BankTask, getTaskColorHex } from '@/lib/types';
 import { formatDuration } from '@/lib/timer-utils';
-import { Pencil, Trash2, CalendarDays, Zap, Plus } from 'lucide-react';
-import { Checkbox } from '@/components/ui/checkbox';
+import { Pencil, Trash2, CalendarDays, Zap, Plus, Minus } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { isOverdue, formatDueDate, dueDayDiff } from '@/lib/task-bank-utils';
 
@@ -12,44 +11,32 @@ interface TaskBankCardProps {
   task: BankTask;
   selectable?: boolean;
   selected?: boolean;
-  /** Times this task has been added in the current picker session. */
+  /** Unfinished copies currently queued in the session. */
   addedCount?: number;
+  addDisabled?: boolean;
+  onRemove?: (id: string) => void;
   onToggleSelect?: (id: string) => void;
   onEdit?: (task: BankTask) => void;
   onDelete?: (id: string) => void;
 }
 
-export function TaskBankCard({ task, selectable, selected, addedCount = 0, onToggleSelect, onEdit, onDelete }: TaskBankCardProps) {
+export function TaskBankCard({ task, selectable, selected, addedCount = 0, addDisabled, onRemove, onToggleSelect, onEdit, onDelete }: TaskBankCardProps) {
   const dueToday = !!task.dueDate && dueDayDiff(task.dueDate) === 0;
   // Repeatable tasks show a running tally instead of a one-shot checkbox.
   const repeatable = selectable && !task.isOneOff;
   const content = (
     <>
       {selectable && (
-        repeatable ? (
-          <span
-            onClick={() => onToggleSelect?.(task.id)}
-            title={addedCount > 0 ? `Added ${addedCount}×` : 'Tap to add — you can add it more than once'}
-            className={`shrink-0 w-7 h-6 rounded-full inline-flex items-center justify-center text-[11px] font-semibold ${
-              addedCount > 0
-                ? 'bg-primary/15 text-primary'
-                : 'bg-secondary/60 text-muted-foreground'
-            }`}
-          >
-            {addedCount > 0 ? `×${addedCount}` : <Plus className="w-3.5 h-3.5" />}
-          </span>
-        ) : (
-          <Checkbox
-            checked={!!selected}
-            onCheckedChange={() => onToggleSelect?.(task.id)}
-            className="shrink-0"
-          />
-        )
+        <button type="button" disabled={addDisabled} aria-label={`Add ${task.name}`} onClick={() => onToggleSelect?.(task.id)}
+          className="shrink-0 w-11 h-11 rounded-full inline-flex items-center justify-center bg-secondary/60 text-primary disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-ring">
+          <Plus className="w-5 h-5" />
+        </button>
       )}
-      <div className="flex-1 min-w-0" onClick={selectable ? () => onToggleSelect?.(task.id) : undefined}>
+      <div className="flex-1 min-w-0" onClick={selectable && !addDisabled ? () => onToggleSelect?.(task.id) : undefined}>
         <p className="text-foreground font-medium break-words">{task.name}</p>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
           <span className="text-xs text-muted-foreground">{formatDuration(task.durationSeconds)}</span>
+          {selectable && addedCount > 0 && <span className="text-xs font-semibold text-primary">×{addedCount} queued</span>}
           {task.isOneOff && (
             <span
               title="One-off task — deleted from bank when completed or removed from session"
@@ -74,6 +61,12 @@ export function TaskBankCard({ task, selectable, selected, addedCount = 0, onTog
           ))}
         </div>
       </div>
+      {selectable && onRemove && (
+        <button type="button" disabled={addedCount === 0} aria-label={`Remove one ${task.name}`} onClick={() => onRemove(task.id)}
+          className="shrink-0 w-11 h-11 rounded-full inline-flex items-center justify-center bg-secondary/60 text-muted-foreground hover:text-destructive disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-ring">
+          <Minus className="w-5 h-5" />
+        </button>
+      )}
       {(onEdit || onDelete) && (
         <div className="flex items-center gap-1 shrink-0">
           {onEdit && (
@@ -103,7 +96,7 @@ export function TaskBankCard({ task, selectable, selected, addedCount = 0, onTog
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
-      className={`glass-card rounded-xl overflow-hidden flex items-center gap-3 px-4 py-3 transition-all ${
+      className={`glass-card rounded-xl overflow-hidden flex items-center gap-2 px-3 py-3 transition-all ${
         selectable ? 'cursor-pointer' : ''
       } ${selected && !repeatable ? 'ring-2 ring-primary/60' : ''} ${dueToday ? 'border-2 border-red-500' : ''}`}
       style={{ boxShadow: 'var(--shadow-sm)', borderLeft: `3px solid ${getTaskColorHex(task.color)}` }}

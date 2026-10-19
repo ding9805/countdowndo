@@ -7,21 +7,21 @@ import { X } from 'lucide-react';
 
 type ToasterProps = React.ComponentProps<typeof Sonner>;
 
-// Gap between the top of the toast stack and the "Clear all" button.
+// Gap between the bottom of the toast stack and the "Clear all" button.
 const CLEAR_ALL_GAP_PX = 8;
 
 const Toaster = ({ ...props }: ToasterProps) => {
   const { theme = 'system' } = useTheme();
   const { toasts } = useSonner();
   const showClearAll = toasts.length > 1;
-  // Distance from the bottom of the viewport to the top of the stack, so the
-  // button can sit just above it. Toasts animate in and out, so it's tracked
-  // every frame, but only while the button is showing.
-  const [stackTop, setStackTop] = useState<number | null>(null);
+  // Where the stack ends, so the button can sit just below it. Toasts
+  // animate in and out, so it's tracked every frame, but only while the
+  // button is showing.
+  const [stackBottom, setStackBottom] = useState<number | null>(null);
 
   useEffect(() => {
     if (!showClearAll) {
-      setStackTop(null);
+      setStackBottom(null);
       return;
     }
     let frame = 0;
@@ -29,12 +29,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
       const visible = document.querySelectorAll<HTMLElement>(
         '[data-sonner-toast][data-visible="true"][data-removed="false"]'
       );
-      let top = Infinity;
+      let bottom = -Infinity;
       visible.forEach((el) => {
-        top = Math.min(top, el.getBoundingClientRect().top);
+        bottom = Math.max(bottom, el.getBoundingClientRect().bottom);
       });
-      const next = Number.isFinite(top) ? window.innerHeight - top : null;
-      setStackTop((prev) => (prev === next ? prev : next));
+      const next = Number.isFinite(bottom) ? bottom : null;
+      setStackBottom((prev) => (prev === next ? prev : next));
       frame = requestAnimationFrame(measure);
     };
     measure();
@@ -47,8 +47,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
         theme={theme as ToasterProps['theme']}
         className="toaster group"
         closeButton
+        position="top-center"
         // With several toasts open, keep the stack expanded: collapsed, it
-        // grows when hovered and would cover the "Clear all" button above it.
+        // grows when hovered and would cover the "Clear all" button below it.
         expand={showClearAll}
         toastOptions={{
           classNames: {
@@ -63,12 +64,12 @@ const Toaster = ({ ...props }: ToasterProps) => {
         }}
         {...props}
       />
-      {showClearAll && stackTop !== null && (
+      {showClearAll && stackBottom !== null && (
         <button
           type="button"
           onClick={() => toast.dismiss()}
-          style={{ bottom: stackTop + CLEAR_ALL_GAP_PX }}
-          className="fixed right-4 sm:right-8 z-[1000000000] flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-lg transition-colors hover:text-foreground"
+          style={{ top: stackBottom + CLEAR_ALL_GAP_PX }}
+          className="fixed left-1/2 -translate-x-1/2 z-[1000000000] flex items-center gap-1 rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground shadow-lg transition-colors hover:text-foreground"
         >
           <X className="h-3 w-3" />
           Clear all ({toasts.length})

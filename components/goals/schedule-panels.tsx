@@ -13,7 +13,7 @@ import {
 } from '@/lib/goal-utils';
 import { formatDueDate } from '@/lib/task-bank-utils';
 import { PaceBadge } from './goal-card';
-import { Clock, FastForward, RotateCcw } from 'lucide-react';
+import { RotateCcw } from 'lucide-react';
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
@@ -30,13 +30,11 @@ function leadTone(days: number): string {
   return 'text-green-600 dark:text-green-400';
 }
 
-function PanelShell({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+// Matches the "Overall estimated time behind" panel it sits beside.
+function PanelShell({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="glass-card rounded-xl px-4 py-3.5 min-w-0" style={{ boxShadow: 'var(--shadow-sm)' }}>
-      <h2 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-        {icon}
-        {title}
-      </h2>
+    <section aria-label={title} className="glass-card rounded-2xl p-4 sm:p-5 min-w-0">
+      <h2 className="text-sm font-medium text-muted-foreground">{title}</h2>
       {children}
     </section>
   );
@@ -49,42 +47,6 @@ function GoalRow({ goal, children }: { goal: Goal; children: React.ReactNode }) 
       <span className="truncate flex-1 text-foreground/90">{goal.name}</span>
       {children}
     </li>
-  );
-}
-
-// The overall estimate of time ahead or behind, in days, across active goals.
-export function ScheduleOverviewPanel({ goals, today }: { goals: Goal[]; today: Date }) {
-  const active = goals.filter((g) => !isGoalComplete(g));
-  const overall = overallLeadDays(active, today);
-  const behind = active.filter((g) => goalLeadDays(g, today) < 0).length;
-
-  return (
-    <PanelShell icon={<Clock className="w-3.5 h-3.5" />} title="Overall schedule">
-      {!overall ? (
-        <p className="text-sm text-muted-foreground">No active goals to track.</p>
-      ) : (
-        <>
-          <p className={`font-display text-2xl font-bold ${leadTone(overall.days)}`}>{formatLead(overall.days)}</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {overall.days < 0
-              ? `${plural(behind, 'goal')} behind schedule. Furthest behind: ${overall.goal.name}.`
-              : overall.days === Infinity
-              ? 'Every active goal is already done up to its due date.'
-              : `Every goal stays on track for that long. ${overall.goal.name} falls behind first.`}
-          </p>
-          <ul className="mt-3 space-y-1.5">
-            {active.map((g) => {
-              const lead = goalLeadDays(g, today);
-              return (
-                <GoalRow key={g.id} goal={g}>
-                  <span className={`shrink-0 font-medium ${leadTone(lead)}`}>{formatLead(lead)}</span>
-                </GoalRow>
-              );
-            })}
-          </ul>
-        </>
-      )}
-    </PanelShell>
   );
 }
 
@@ -107,15 +69,15 @@ export function DateFastForwarder({ goals, today }: { goals: Goal[]; today: Date
   const stepButton = 'px-2.5 py-1 rounded-lg text-xs font-medium bg-secondary/50 hover:bg-secondary text-foreground transition-colors disabled:opacity-40 disabled:hover:bg-secondary/50';
 
   return (
-    <PanelShell icon={<FastForward className="w-3.5 h-3.5" />} title="Fast-forward">
+    <PanelShell title="Fast-forward">
       {active.length === 0 ? (
         <p className="text-sm text-muted-foreground">No active goals to track.</p>
       ) : (
         <>
-          <p className={`font-display text-2xl font-bold ${behindThen ? 'text-destructive' : 'text-green-600 dark:text-green-400'}`}>
+          <p className={`mt-1 text-2xl font-semibold tabular-nums ${behindThen ? 'text-destructive' : 'text-green-600 dark:text-green-400'}`}>
             {behindThen ? `${plural(behindThen, 'goal')} behind` : 'All on track'}
           </p>
-          <p className="text-xs text-muted-foreground mt-1">
+          <p className="mt-2 text-xs text-muted-foreground">
             {offset === 0 ? 'Today' : `${formatDueDate(todayLocalDateString(date), today)}, in ${plural(offset, 'day')}`}, if nothing more gets done.
             {overall && overall.days !== Infinity && overall.days > 0 && ` You can skip ${plural(overall.days, 'day')} and stay on schedule.`}
           </p>
@@ -140,6 +102,7 @@ export function DateFastForwarder({ goals, today }: { goals: Goal[]; today: Date
           <ul className="mt-3 space-y-1.5">
             {active.map((g) => (
               <GoalRow key={g.id} goal={g}>
+                <span className={`shrink-0 ${leadTone(goalLeadDays(g, today))}`}>{formatLead(goalLeadDays(g, today))}</span>
                 <PaceBadge pace={paceStatus(g, date)} unit={g.unit} />
               </GoalRow>
             ))}

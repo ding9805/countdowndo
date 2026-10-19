@@ -768,3 +768,93 @@ describe('a Stop the server fails to carry out', () => {
     expect(taskNames(sessionRow.tasks)).toEqual(['Next thing']);
   });
 });
+
+describe('undoing queued bank copies with minus', () => {
+  test('rapid removals remove one each and save the reduced staged duration', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([1, 2, 3].map(() => ({ bankTask: goalCursor })), { silent: true });
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await advance(1000);
+    expect(engine.current.tasks).toHaveLength(1);
+    expect(engine.current.sessionTotalSeconds).toBe(600);
+    expect(lastSessionPost().body.tasks).toHaveLength(1);
+    expect(goalSteps()).toEqual([]);
+  });
+
+  test('undo during a running session does not complete a goal or consume a one-off', async () => {
+    const engine = await startGoalSession();
+    const before = sentRequests.length;
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await advance(1000);
+    expect(engine.current.tasks).toHaveLength(0);
+    expect(engine.current.sessionTotalSeconds).toBe(0);
+    expect(sentRequests.slice(before).filter((r) => r.url !== '/api/active-session')).toEqual([]);
+    expect(goalSteps()).toEqual([]);
+  });
+
+  test('removes the furthest goal interval after reordering and leaves completed copies alone', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([{ bankTask: goalCursor, name: 'First' }, { bankTask: goalCursor, name: 'Second' }]);
+    await flushMicrotasks();
+    engine.current.handleReorder([...engine.current.tasks].reverse());
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id, 'Second');
+    await flushMicrotasks();
+    expect(engine.current.tasks.map((t) => t.name)).toEqual(['First']);
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await flushMicrotasks();
+    engine.current.handleRemoveFromBank(goalCursor.id);
+    await flushMicrotasks();
+    expect(engine.current.tasks).toHaveLength(1);
+    expect(engine.current.tasks[0].isDone).toBe(true);
+  });
+});
+
+describe('reserved trailing time when undoing bank tasks', () => {
+  test.each([false, true])('preserves completed trailing time, paused=%s', async (paused) => {
+    const engine = renderEngine(); await flushMicrotasks();
+    engine.current.handleAddFromBank(['a', 'b', 'c'].map(id => ({bankTask: {...goalCursor,id}})));
+    await advance(1000); engine.current.handleStartSession(); await advance(1000);
+    if (paused) { engine.current.handlePause(); await flushMicrotasks(); }
+    engine.current.handleDeleteTask(engine.current.tasks[2].id); await advance(1000);
+    expect(engine.current.sessionTotalSeconds).toBe(1800);
+    engine.current.handleRemoveFromBank('b'); await advance(1000);
+    expect(engine.current.sessionTotalSeconds).toBe(1200);
+    expect(lastSessionPost().body.sessionTotalSeconds).toBe(1200);
+  });
+  test('rapid undos preserve reserved time exactly once', async () => {
+    const engine=renderEngine(); await flushMicrotasks();
+    engine.current.handleAddFromBank(['a','b','c'].map(id=>({bankTask:{...goalCursor,id}})));
+    await advance(1000); engine.current.handleStartSession(); await advance(1000);
+    engine.current.handleDeleteTask(engine.current.tasks[2].id); await advance(1000);
+    engine.current.handleRemoveFromBank('b'); engine.current.handleRemoveFromBank('a');
+    await advance(1000);
+    expect(engine.current.tasks).toHaveLength(0);
+    expect(engine.current.sessionTotalSeconds).toBe(600);
+    expect(lastSessionPost().body.sessionTotalSeconds).toBe(600);
+  });
+});
+
+describe('live default planning time', () => {
+  const localTime = () => { const now=new Date(); return `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`; };
+  test('follows the clock, preserves manual time, and Time now restores live updates', async () => {
+    const engine=renderEngine(); await flushMicrotasks();
+    await advance(30*60000);
+    expect(engine.current.planningStartTime).toBe(localTime());
+    engine.current.setPlanningStartTime('15:45'); await advance(60000);
+    expect(engine.current.planningStartTime).toBe('15:45');
+    engine.current.setPlanningStartTime(null); await advance(60000);
+    expect(engine.current.planningStartTime).toBe(localTime());
+  });
+  test('updates across midnight', async () => {
+    jest.setSystemTime(new Date(2026,9,14,23,59,50));
+    const engine=renderEngine(); await flushMicrotasks();
+    await advance(20000);
+    expect(engine.current.planningStartTime).toBe('00:00');
+  });
+});

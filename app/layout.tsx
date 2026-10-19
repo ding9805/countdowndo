@@ -6,7 +6,6 @@ import { ChunkLoadErrorHandler } from '@/components/chunk-load-error-handler'
 import { GoogleAnalytics } from '@/components/google-analytics'
 import { Providers } from '@/components/providers'
 import { FeedbackButton } from '@/components/feedback-button'
-import { DomainNoticeBanner } from '@/components/domain-notice-banner'
 import { PageTransition } from '@/components/page-transition'
 import type { Viewport } from 'next'
 
@@ -46,7 +45,6 @@ export default function RootLayout({
       <head></head>
       <body className={`${dmSans.variable} ${jakartaSans.variable} ${jetbrainsMono.variable} font-sans bg-background text-foreground`}>
         <Providers>
-          <DomainNoticeBanner />
           <ThemeProvider
             attribute="class"
             defaultTheme="dark"

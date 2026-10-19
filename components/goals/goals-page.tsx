@@ -4,9 +4,9 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import Link from 'next/link';
 import { Goal } from '@/lib/types';
-import { todayLocalDateString } from '@/lib/goal-utils';
+import { todayLocalDateString, goalTimeBehindSeconds, formatTimeBehind } from '@/lib/goal-utils';
 import { GoalCard } from './goal-card';
-import { ScheduleOverviewPanel, DateFastForwarder } from './schedule-panels';
+import { DateFastForwarder } from './schedule-panels';
 import { GoalForm, GoalFormData } from './goal-form';
 import { Button } from '@/components/ui/button';
 import { Target, LogIn, Plus } from 'lucide-react';
@@ -22,9 +22,20 @@ export function GoalsPage() {
   const [goals, setGoals] = useState<Goal[]>([]);
   const [existingTags, setExistingTags] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [today, setToday] = useState(() => new Date());
   const [formOpen, setFormOpen] = useState(false);
   const [editingGoal, setEditingGoal] = useState<Goal | null>(null);
   const [formMode, setFormMode] = useState<'create' | 'edit' | 'duplicate'>('create');
+
+  useEffect(() => {
+    const refreshDate = () => setToday((previous) => {
+      const now = new Date();
+      return todayLocalDateString(previous) === todayLocalDateString(now) ? previous : now;
+    });
+    const timer = window.setInterval(refreshDate, 60_000);
+    window.addEventListener('focus', refreshDate);
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refreshDate); };
+  }, []);
 
   const fetchGoals = useCallback(async () => {
     try {
@@ -65,10 +76,7 @@ export function GoalsPage() {
   }, [isLoggedIn, fetchGoals, fetchTags]);
 
   const activeCount = useMemo(() => goals.filter((g) => !g.completedAt).length, [goals]);
-  // Re-read the clock whenever goals reload, so a page left open overnight
-  // catches up on the next refresh.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const today = useMemo(() => new Date(), [goals]);
+  const totalTimeBehind = goals.reduce((sum, goal) => sum + goalTimeBehindSeconds(goal, today), 0);
 
   const openCreate = () => { setEditingGoal(null); setFormMode('create'); setFormOpen(true); };
   const openEdit = (goal: Goal) => { setEditingGoal(goal); setFormMode('edit'); setFormOpen(true); };
@@ -80,8 +88,7 @@ export function GoalsPage() {
       const res = await fetch(isEdit ? `/api/goals/${editingGoal!.id}` : '/api/goals', {
         method: isEdit ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // A new goal starts today by this device's calendar, not the server's.
-        body: JSON.stringify(isEdit ? data : { ...data, startDate: todayLocalDateString() }),
+        body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? 'Failed to save goal');
       const saved = await res.json();
@@ -186,6 +193,20 @@ export function GoalsPage() {
           )
         ) : (
           <>
+            {!loading && goals.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <section aria-label="Overall time behind" className="glass-card rounded-2xl p-4 sm:p-5">
+                  <h2 className="text-sm font-medium text-muted-foreground">Overall estimated time behind</h2>
+                  <p className={`mt-1 text-2xl font-semibold tabular-nums ${totalTimeBehind > 0 ? 'text-destructive' : 'text-foreground'}`}>
+                    {formatTimeBehind(totalTimeBehind)}
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Estimated effort to catch up across goals behind pace, based on backlog and time per task. Rounded up to the nearest minute.
+                  </p>
+                </section>
+                <DateFastForwarder goals={goals} today={today} />
+              </div>
+            )}
             <p className="text-sm text-muted-foreground mb-6">
               {activeCount} active goal{activeCount !== 1 ? 's' : ''}
             </p>
@@ -203,27 +224,22 @@ export function GoalsPage() {
                 </Button>
               </div>
             ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-                  <ScheduleOverviewPanel goals={goals} today={today} />
-                  <DateFastForwarder goals={goals} today={today} />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <AnimatePresence initial={false}>
-                    {goals.map((goal) => (
-                      <GoalCard
-                        key={goal.id}
-                        goal={goal}
-                        onEdit={openEdit}
-                        onDuplicate={openDuplicate}
-                        onDelete={handleDelete}
-                        onSetCurrentValue={handleSetCurrentValue}
-                        onRegenerate={handleRegenerate}
-                      />
-                    ))}
-                  </AnimatePresence>
-                </div>
-              </>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <AnimatePresence initial={false}>
+                  {goals.map((goal) => (
+                    <GoalCard
+                      key={goal.id}
+                      goal={goal}
+                      today={today}
+                      onEdit={openEdit}
+                      onDuplicate={openDuplicate}
+                      onDelete={handleDelete}
+                      onSetCurrentValue={handleSetCurrentValue}
+                      onRegenerate={handleRegenerate}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
             )}
           </>
         )}

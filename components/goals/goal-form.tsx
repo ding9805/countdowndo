@@ -9,7 +9,7 @@ import { ColorPicker } from '@/components/color-picker';
 import { TimePicker } from '@/components/time-picker';
 import { TagInput, mergePendingTag } from '@/components/task-bank/tag-input';
 import { formatDuration } from '@/lib/timer-utils';
-import { formatGoalValue, wholeIntervalSuggestions } from '@/lib/goal-utils';
+import { formatGoalValue, wholeIntervalSuggestions, todayLocalDateString } from '@/lib/goal-utils';
 
 export interface GoalFormData {
   name: string;
@@ -20,6 +20,7 @@ export interface GoalFormData {
   intervalSeconds: number;
   color: TaskColorId;
   tags: string[];
+  startDate: string;
   dueDate: string;
 }
 
@@ -48,6 +49,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
   const [color, setColor] = useState<TaskColorId>(DEFAULTS.color);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  const [startDate, setStartDate] = useState(() => todayLocalDateString());
   const [dueDate, setDueDate] = useState(DEFAULTS.dueDate);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +66,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
       setIntervalSeconds(initialGoal.intervalSeconds);
       setColor(initialGoal.color);
       setTags(initialGoal.tags);
+      setStartDate(mode === 'edit' ? initialGoal.startDate : todayLocalDateString());
       setDueDate(initialGoal.dueDate);
     } else {
       setName(DEFAULTS.name);
@@ -74,6 +77,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
       setIntervalSeconds(DEFAULTS.intervalSeconds);
       setColor(DEFAULTS.color);
       setTags([]);
+      setStartDate(todayLocalDateString());
       setDueDate(DEFAULTS.dueDate);
     }
     setTagInput('');
@@ -93,7 +97,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
   const wholeSuggestions = validNumbers
     ? wholeIntervalSuggestions(start, target, nIntervals)
     : [];
-  const isValid = !!name.trim() && !!unit.trim() && !!dueDate && validNumbers;
+  const isValid = !!name.trim() && !!unit.trim() && !!startDate && !!dueDate && startDate <= dueDate && validNumbers;
   const canSubmit = isValid && !submitting;
 
   // Which required fields are empty/invalid. Only surfaced once the user tries
@@ -102,7 +106,8 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
     name: !name.trim(),
     unit: !unit.trim(),
     numbers: !validNumbers,
-    dueDate: !dueDate,
+    startDate: !startDate,
+    dueDate: !dueDate || (!!startDate && startDate > dueDate),
   };
   const err = (on: boolean) =>
     showErrors && on ? 'border-destructive ring-1 ring-destructive/40' : '';
@@ -126,6 +131,7 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
         intervalSeconds,
         color,
         tags: finalTags,
+        startDate,
         dueDate,
       });
       onOpenChange(false);
@@ -237,15 +243,32 @@ export function GoalForm({ open, onOpenChange, mode, initialGoal, existingTags, 
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground mb-1.5 block">Due date</label>
+            <label htmlFor="goal-start-date" className="text-xs text-muted-foreground mb-1.5 block">Start date</label>
             <input
+              id="goal-start-date"
               type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={`w-full min-w-0 bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark] ${err(errors.startDate)}`}
+            />
+            <p className="text-[11px] text-muted-foreground mt-1.5">Defaults to today. Choose an earlier date for a goal already in progress.</p>
+            {showErrors && errors.startDate && (
+              <p className="text-[11px] text-destructive mt-1.5">Pick a start date.</p>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="goal-due-date" className="text-xs text-muted-foreground mb-1.5 block">Due date</label>
+            <input
+              id="goal-due-date"
+              type="date"
+              min={startDate || undefined}
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               className={`w-full bg-secondary/60 border border-border/50 rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none focus:border-primary/50 [color-scheme:light] dark:[color-scheme:dark] ${err(errors.dueDate)}`}
             />
             {showErrors && errors.dueDate && (
-              <p className="text-[11px] text-destructive mt-1.5">Pick a due date.</p>
+              <p className="text-[11px] text-destructive mt-1.5">{!dueDate ? 'Pick a due date.' : 'Due date must be on or after the start date.'}</p>
             )}
           </div>
 
