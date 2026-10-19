@@ -5,7 +5,7 @@ import { Goal, getTaskColorHex } from '@/lib/types';
 import { Pencil, Copy, Trash2, CalendarDays, CheckCircle2, AlertTriangle, RefreshCw, Check, X } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Input } from '@/components/ui/input';
-import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid } from '@/lib/goal-utils';
+import { formatGoalValue, goalProgress, paceStatus, isGoalComplete, cursorTaskName, isOffGrid, PaceStatus } from '@/lib/goal-utils';
 import { formatDueDate, isOverdue } from '@/lib/task-bank-utils';
 
 interface GoalCardProps {
@@ -15,6 +15,24 @@ interface GoalCardProps {
   onDelete: (id: string) => void;
   onSetCurrentValue: (goal: Goal, value: number) => void;
   onRegenerate: (id: string) => Promise<void> | void;
+}
+
+export function PaceBadge({ pace, unit }: { pace: PaceStatus; unit: string }) {
+  return (
+    <span
+      className={`text-[11px] font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${
+        pace.status === 'ahead'
+          ? 'bg-green-500/15 text-green-600 dark:text-green-400'
+          : pace.status === 'behind'
+          ? 'bg-destructive/15 text-destructive'
+          : 'bg-secondary/50 text-muted-foreground'
+      }`}
+    >
+      {pace.status === 'on-pace'
+        ? 'On pace'
+        : `${pace.status === 'ahead' ? 'Ahead' : 'Behind'} by ${formatGoalValue(Math.abs(pace.delta))} ${unit}`}
+    </span>
+  );
 }
 
 export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValue, onRegenerate }: GoalCardProps) {
@@ -49,22 +67,6 @@ export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValu
       onSetCurrentValue(goal, value);
     }
   };
-
-  const paceBadge = pace && (
-    <span
-      className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-        pace.status === 'ahead'
-          ? 'bg-green-500/15 text-green-600 dark:text-green-400'
-          : pace.status === 'behind'
-          ? 'bg-destructive/15 text-destructive'
-          : 'bg-secondary/50 text-muted-foreground'
-      }`}
-    >
-      {pace.status === 'on-pace'
-        ? 'On pace'
-        : `${pace.status === 'ahead' ? 'Ahead' : 'Behind'} by ${formatGoalValue(Math.abs(pace.delta))} ${goal.unit}`}
-    </span>
-  );
 
   return (
     <motion.div
@@ -112,7 +114,7 @@ export function GoalCard({ goal, onEdit, onDuplicate, onDelete, onSetCurrentValu
                 {formatGoalValue(goal.currentValue)} / {formatGoalValue(goal.targetValue)} {goal.unit}
               </button>
             )}
-            {paceBadge}
+            {pace && <PaceBadge pace={pace} unit={goal.unit} />}
             <span
               className={`text-[11px] font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
                 !complete && isOverdue(goal.dueDate) ? 'bg-destructive/15 text-destructive' : 'bg-secondary/50 text-muted-foreground'

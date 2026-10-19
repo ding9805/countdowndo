@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Goal } from '@/lib/types';
 import { todayLocalDateString } from '@/lib/goal-utils';
 import { GoalCard } from './goal-card';
+import { ScheduleOverviewPanel, DateFastForwarder } from './schedule-panels';
 import { GoalForm, GoalFormData } from './goal-form';
 import { Button } from '@/components/ui/button';
 import { Target, LogIn, Plus } from 'lucide-react';
@@ -64,6 +65,10 @@ export function GoalsPage() {
   }, [isLoggedIn, fetchGoals, fetchTags]);
 
   const activeCount = useMemo(() => goals.filter((g) => !g.completedAt).length, [goals]);
+  // Re-read the clock whenever goals reload, so a page left open overnight
+  // catches up on the next refresh.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const today = useMemo(() => new Date(), [goals]);
 
   const openCreate = () => { setEditingGoal(null); setFormMode('create'); setFormOpen(true); };
   const openEdit = (goal: Goal) => { setEditingGoal(goal); setFormMode('edit'); setFormOpen(true); };
@@ -198,21 +203,27 @@ export function GoalsPage() {
                 </Button>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                <AnimatePresence initial={false}>
-                  {goals.map((goal) => (
-                    <GoalCard
-                      key={goal.id}
-                      goal={goal}
-                      onEdit={openEdit}
-                      onDuplicate={openDuplicate}
-                      onDelete={handleDelete}
-                      onSetCurrentValue={handleSetCurrentValue}
-                      onRegenerate={handleRegenerate}
-                    />
-                  ))}
-                </AnimatePresence>
-              </div>
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                  <ScheduleOverviewPanel goals={goals} today={today} />
+                  <DateFastForwarder goals={goals} today={today} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <AnimatePresence initial={false}>
+                    {goals.map((goal) => (
+                      <GoalCard
+                        key={goal.id}
+                        goal={goal}
+                        onEdit={openEdit}
+                        onDuplicate={openDuplicate}
+                        onDelete={handleDelete}
+                        onSetCurrentValue={handleSetCurrentValue}
+                        onRegenerate={handleRegenerate}
+                      />
+                    ))}
+                  </AnimatePresence>
+                </div>
+              </>
             )}
           </>
         )}

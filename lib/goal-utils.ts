@@ -171,6 +171,64 @@ export function paceStatus(
   return { status: 'on-pace', delta };
 }
 
+type ScheduledGoal = Pick<GoalLike, 'startValue' | 'targetValue' | 'currentValue' | 'intervals'> & {
+  startDate: string;
+  dueDate: string;
+};
+
+// The calendar day `days` after `date` (negative goes back), at local
+// midnight. Built from the date parts so a DST change can't shift the day.
+export function addDays(date: Date, days: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
+}
+
+// Whole calendar days from `from` to `to` (negative when `to` is earlier).
+export function daysBetween(from: Date, to: Date): number {
+  const a = Date.UTC(from.getFullYear(), from.getMonth(), from.getDate());
+  const b = Date.UTC(to.getFullYear(), to.getMonth(), to.getDate());
+  return Math.round((b - a) / 86_400_000);
+}
+
+// The lead in days: how many days from `today` the goal could go without any
+// progress and still not be Behind (by paceStatus, tolerance included).
+// Negative when it's already behind — the days of schedule it has to make up.
+// Infinity when it can never fall behind: complete, or the current value
+// already covers the schedule through the due date.
+export function goalLeadDays(goal: ScheduledGoal, today: Date = new Date()): number {
+  if (isGoalComplete(goal)) return Infinity;
+  const onTrack = (days: number) => paceStatus(goal, addDays(today, days)).status !== 'behind';
+  let hi = daysBetween(today, parseLocalDate(goal.dueDate));
+  if (onTrack(hi)) return Infinity;
+  // The day before the start the schedule asks for nothing yet, so progress
+  // is never behind there (unless the start and due dates collapse).
+  let lo = Math.min(daysBetween(today, parseLocalDate(goal.startDate)) - 1, hi - 1);
+  if (!onTrack(lo)) return lo;
+  // The expected value only grows with the date, so on-track days form a
+  // prefix: binary-search its last day between lo (on track) and hi (behind).
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (onTrack(mid)) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// The overall estimate across goals: the smallest lead, since the first goal
+// to fall behind is when the plan as a whole is off schedule. Complete goals
+// are skipped; null when there's nothing left to track.
+export function overallLeadDays<G extends ScheduledGoal>(
+  goals: G[],
+  today: Date = new Date()
+): { days: number; goal: G } | null {
+  let worst: { days: number; goal: G } | null = null;
+  for (const goal of goals) {
+    if (isGoalComplete(goal)) continue;
+    const days = goalLeadDays(goal, today);
+    if (!worst || days < worst.days) worst = { days, goal };
+  }
+  return worst;
+}
+
 // The day a new goal starts: the user's own date, sent by the browser. The
 // server's clock is UTC on Vercel, a day behind for the early hours of every
 // day east of UTC (midnight to 8 AM in Singapore), and a goal started

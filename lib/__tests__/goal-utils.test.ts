@@ -7,6 +7,11 @@ import {
   previousIntervalBoundary,
   isOffGrid,
   wholeIntervalSuggestions,
+  goalLeadDays,
+  overallLeadDays,
+  addDays,
+  daysBetween,
+  paceStatus,
 } from '../goal-utils';
 import { GoalLike } from '../goal-utils';
 
@@ -132,5 +137,75 @@ describe('wholeIntervalSuggestions', () => {
     const started = Date.now();
     expect(wholeIntervalSuggestions(0, 2e9, 7)).toEqual([4, 5, 8]);
     expect(Date.now() - started).toBeLessThan(200);
+  });
+});
+
+describe('goalLeadDays', () => {
+  // 0→100 over 40 days (2.5 a day), chunks of 10, so "on pace" allows ±5.
+  // On 2026-10-11, day 10, the schedule expects 25.
+  const scheduled = (currentValue: number) => ({
+    ...makeGoal({ currentValue }),
+    startDate: '2026-10-01',
+    dueDate: '2026-11-10',
+  });
+  const today = new Date(2026, 9, 11);
+
+  test('counts the days of schedule progress already covers', () => {
+    // 51 + 5 tolerance covers the schedule up to day 22, 12 days from today.
+    expect(goalLeadDays(scheduled(51), today)).toBe(12);
+  });
+
+  test('the lead is the last day still on track', () => {
+    const goal = scheduled(51);
+    expect(paceStatus(goal, addDays(today, 12)).status).not.toBe('behind');
+    expect(paceStatus(goal, addDays(today, 13)).status).toBe('behind');
+  });
+
+  test('exactly on pace still has the tolerance as lead', () => {
+    expect(goalLeadDays(scheduled(25), today)).toBe(2);
+  });
+
+  test('negative when behind: the days to make up', () => {
+    expect(goalLeadDays(scheduled(10), today)).toBe(-4);
+    expect(paceStatus(scheduled(10), addDays(today, -4)).status).not.toBe('behind');
+  });
+
+  test('Infinity when progress already covers the due date', () => {
+    expect(goalLeadDays(scheduled(96), today)).toBe(Infinity);
+    expect(goalLeadDays(scheduled(100), today)).toBe(Infinity);
+  });
+
+  test('counts from before the start date', () => {
+    // Nothing done, 6 days before the start: on track until day 2 (Oct 3).
+    expect(goalLeadDays(scheduled(0), new Date(2026, 8, 25))).toBe(8);
+  });
+
+  test('an overdue goal leads by the days since it fell behind', () => {
+    expect(goalLeadDays(scheduled(51), new Date(2026, 10, 20))).toBe(-28);
+  });
+});
+
+describe('overallLeadDays', () => {
+  const today = new Date(2026, 9, 11);
+  const dated = { startDate: '2026-10-01', dueDate: '2026-11-10' };
+
+  test('takes the goal furthest behind', () => {
+    const a = { ...makeGoal({ name: 'A', currentValue: 51 }), ...dated };
+    const b = { ...makeGoal({ name: 'B', currentValue: 10 }), ...dated };
+    expect(overallLeadDays([a, b], today)).toEqual({ days: -4, goal: b });
+  });
+
+  test('skips complete goals, null when none are left', () => {
+    const done = { ...makeGoal({ currentValue: 100 }), ...dated };
+    expect(overallLeadDays([done], today)).toBeNull();
+    expect(overallLeadDays([], today)).toBeNull();
+  });
+});
+
+describe('addDays / daysBetween', () => {
+  test('step whole calendar days across month ends', () => {
+    expect(addDays(new Date(2026, 9, 30), 3)).toEqual(new Date(2026, 10, 2));
+    expect(daysBetween(new Date(2026, 9, 30), new Date(2026, 10, 2))).toBe(3);
+    expect(daysBetween(new Date(2026, 10, 2, 23, 59), new Date(2026, 9, 30))).toBe(-3);
   });
 });
