@@ -716,6 +716,15 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     });
   };
 
+  // A task added to a session that has run over joins the backlog, its
+  // deadline already past. The chime is for a deadline passing, so it
+  // shouldn't go off the moment the task is added.
+  const silenceBacklog = (added: Task[]) => {
+    added.forEach((task: Task) => {
+      if ((task?.cumulativeSeconds ?? 0) <= elapsedSeconds) soundPlayedRef.current?.add(task.id);
+    });
+  };
+
   const handleStartSession = () => {
     if ((tasks?.length ?? 0) === 0) {
       toast.error('Add at least one task before starting');
@@ -1135,6 +1144,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         const { tasks: updated, envelopeSeconds: newTotalSeconds } =
           addTaskMidSession(list, newTask, position, elapsedSeconds, effectiveTotal);
         rearmChimes(updated);
+        silenceBacklog(updated.filter((t: Task) => t.id === newTask.id));
         setSessionTotalSeconds(newTotalSeconds);
         saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotalSeconds);
         return updated;
@@ -1181,9 +1191,9 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         if (effectiveTotal <= 0 && list.length > 0) {
           effectiveTotal = list[list.length - 1]?.cumulativeSeconds ?? 0;
         }
-        // From the session's end, or from now if the session has run over,
-        // so the added tasks don't start out overdue.
-        let running = Math.max(effectiveTotal, elapsedSeconds);
+        // From the session's end, even if that has passed: a session that has
+        // run over stays behind by that much — see addTaskMidSession.
+        let running = effectiveTotal;
         const newTasks: Task[] = picked.map((p) => {
           const bt = p.bankTask;
           running += bt.durationSeconds;
@@ -1201,6 +1211,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           };
         });
         const updated = [...list, ...newTasks];
+        silenceBacklog(newTasks);
         setSessionTotalSeconds(running);
         saveSessionToDb(updated, undefined, undefined, undefined, undefined, running);
         return updated;

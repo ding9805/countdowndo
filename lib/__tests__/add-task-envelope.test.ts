@@ -9,8 +9,12 @@
  * It then timed the new task from the session's start rather than from now,
  * so partway through a session it started out overdue (and chimed at once),
  * above the tasks already done. It now goes below those and starts now, or
- * where the task before it ends if that's later. "Add to Bottom" in a
- * session that has run over had the same problem.
+ * where the task before it ends if that's later.
+ *
+ * "Add to Bottom" once a session had run over also started the task from
+ * now, which left a backlog-sized gap in the timeline; reordering then
+ * handed that gap out as fresh time and the backlog disappeared. A bottom add
+ * now goes on the end of the schedule, behind it like the rest of it.
  */
 
 import { addTaskMidSession } from '../timer-utils';
@@ -89,15 +93,16 @@ describe('Continuous mode — a task added mid-session never starts out overdue'
     expect(result.envelopeSeconds).toBe(1020);
   });
 
-  test('at the bottom, it starts at the session end, or now if the session has run over', () => {
+  test('at the bottom, it starts at the session end, even once the session has run over', () => {
     const list = [t('A', 600, 600)];
 
     expect(deadlines(addTaskMidSession(list, newTask(300), 'bottom', 100, 600).tasks))
       .toEqual([['A', 600], ['new', 900]]);
 
+    // Six minutes over: the new task joins the backlog rather than starting fresh.
     const overtime = addTaskMidSession(list, newTask(300), 'bottom', 960, 600);
-    expect(deadlines(overtime.tasks)).toEqual([['A', 600], ['new', 1260]]);
-    expect(overtime.envelopeSeconds).toBe(1260);
+    expect(deadlines(overtime.tasks)).toEqual([['A', 600], ['new', 900]]);
+    expect(overtime.envelopeSeconds).toBe(900);
   });
 
   test('at the top with every task done, it goes at the end like a bottom add', () => {

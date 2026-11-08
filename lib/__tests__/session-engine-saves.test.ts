@@ -662,18 +662,64 @@ describe('adding a task mid-session', () => {
     expect(engine.current.sessionTotalSeconds).toBe(900);
   });
 
-  test('once the session has run over, Add to Bottom and Task Bank adds start now instead of overdue', async () => {
+  test('once the session has run over, Add to Bottom and Task Bank adds join the backlog', async () => {
     const engine = await startRunningSession(); // a 10-minute task
     await advance(16 * 60_000); // six minutes over
+    const elapsed = engine.current.elapsedSeconds;
 
     engine.current.handleAddTask('Call back', 300);
     await flushMicrotasks();
     engine.current.handleAddFromBank([{ bankTask: { ...goalCursor, id: 'bank-1', name: 'Tidy desk', durationSeconds: 300 } }]);
     await flushMicrotasks();
 
-    const [, call, tidy] = engine.current.tasks;
-    expect(engine.current.getRemainingTime(call)).toBe(300);
-    expect(engine.current.getRemainingTime(tidy)).toBe(600);
+    // They go on the end of the schedule, behind it like the rest of it.
+    const [report, call, tidy] = engine.current.tasks;
+    expect(engine.current.getRemainingTime(report)).toBe(600 - elapsed);
+    expect(engine.current.getRemainingTime(call)).toBe(900 - elapsed);
+    expect(engine.current.getRemainingTime(tidy)).toBe(1200 - elapsed);
+    expect(engine.current.sessionTotalSeconds).toBe(1200);
+  });
+
+  test('moving an overdue task below tasks added later hands its backlog to the new top task', async () => {
+    // Left running overnight: the 10-minute task is hours overdue.
+    // Jump the clock rather than tick through the night: the timer reads it.
+    const engine = await startRunningSession();
+    jest.setSystemTime(Date.now() + 32 * 3600_000);
+    await advance(1000);
+    const elapsed = engine.current.elapsedSeconds;
+
+    engine.current.handleAddTask('Call back', 900);
+    await flushMicrotasks();
+    engine.current.handleAddTask('Tidy desk', 900);
+    await flushMicrotasks();
+
+    const [report, call, tidy] = engine.current.tasks;
+    engine.current.handleReorder([call, tidy, report]);
+    await flushMicrotasks();
+
+    // The schedule is still 32 hours behind, now from the top task down —
+    // not reset to fresh countdowns as if the session had just started.
+    const [first, second, third] = engine.current.tasks;
+    expect(first.name).toBe('Call back');
+    expect(engine.current.getRemainingTime(first)).toBe(900 - elapsed);
+    expect(engine.current.getRemainingTime(second)).toBe(1800 - elapsed);
+    expect(engine.current.getRemainingTime(third)).toBe(2400 - elapsed);
+    expect(engine.current.sessionTotalSeconds).toBe(2400);
+  });
+
+  test('a task that joins the backlog does not chime the moment it is added', async () => {
+    const engine = await startRunningSession({ alarmEnabled: true });
+    await advance(16 * 60_000);
+    expect(playTimerSound).toHaveBeenCalledTimes(1); // the report, at 10 minutes
+
+    engine.current.handleAddTask('Call back', 300); // due at 15 minutes: already past
+    await flushMicrotasks();
+    engine.current.handleAddFromBank([{ bankTask: { ...goalCursor, id: 'bank-1', name: 'Tidy desk', durationSeconds: 300 } }]);
+    await advance(1000);
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+
+    await advance(4 * 60_000); // past the bank task's deadline at 20 minutes
+    expect(playTimerSound).toHaveBeenCalledTimes(2);
   });
 });
 

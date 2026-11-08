@@ -43,11 +43,17 @@ export function recalculateCumulativeTimesWithEnvelope(
  * Add a task to a continuous session that's under way.
  *
  * 'top' means do it next: it goes just below the tasks already done, which
- * stay where they are as a record (same as Move to top), and 'bottom' after
- * everything, at the session's end. Either way it starts where the task
- * before it ends, or now if that's already past, so it never starts out
+ * stay where they are as a record (same as Move to top), starts where the
+ * task before it ends or now if that's already past, so it never starts out
  * overdue. The tasks after it move back by its duration, and any whose
  * deadline had already passed moves to its end, so deadlines stay in order.
+ *
+ * 'bottom' (and a top add with every task done) goes on the end of the
+ * schedule, at the session's end even if that has passed. A session that has
+ * run over is behind by that much, and adding work doesn't change that:
+ * starting the task from now instead would leave a gap the size of the
+ * backlog in the timeline, which a later reorder hands out to the tasks as
+ * fresh time, wiping the backlog.
  */
 export function addTaskMidSession(
   tasks: Task[],
@@ -62,7 +68,7 @@ export function addTaskMidSession(
   const previousEnd = index === list.length
     ? envelopeSeconds
     : (list[index - 1]?.cumulativeSeconds ?? 0);
-  const start = Math.max(elapsedSeconds, previousEnd);
+  const start = index === list.length ? previousEnd : Math.max(elapsedSeconds, previousEnd);
   const duration = task?.durationSeconds ?? 0;
   const later = list.slice(index).map((t: Task) => (
     { ...(t ?? {}), cumulativeSeconds: Math.max(t?.cumulativeSeconds ?? 0, start) + duration } as Task
