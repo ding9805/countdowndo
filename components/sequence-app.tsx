@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSessionEngine } from '@/hooks/use-session-engine';
 import { TaskInputPanel } from './task-input-panel';
 import { ActiveSession } from './active-session';
@@ -85,7 +85,27 @@ export function SequenceApp() {
     handleClearAll,
     handleEditTask,
     handleReorder,
+    handleUndo,
   } = useSessionEngine(isLoggedIn, alarmEnabled, chime, sessionVolume);
+
+  // Ctrl+Z (Cmd+Z on Mac) undoes the last task-list action, up to five back.
+  // Left to the browser while typing, so text fields keep their own undo, and
+  // while a dialog is open, so it can't change the list hidden behind it.
+  const undoRef = useRef(handleUndo);
+  undoRef.current = handleUndo;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'z' || e.shiftKey || e.altKey || !(e.ctrlKey || e.metaKey)) return;
+      if (e.defaultPrevented || e.repeat) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')) return;
+      if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
+      e.preventDefault();
+      undoRef.current();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">

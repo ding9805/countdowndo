@@ -66,6 +66,28 @@ function syncKey(p: {
   });
 }
 
+const UNDO_LIMIT = 5;
+
+// A task removed mid-session, which counts as completing it: undoing the
+// removal has to take back the log entry, bank check-off and goal step too.
+interface RemovedTask {
+  taskId: string;
+  bankTaskId: string | null;
+  // Already done before removal, so its side effects belong to the mark-done.
+  wasDone: boolean;
+  logged: Promise<Record<string, string>> | null;
+  advanced: Promise<boolean> | null;
+  wasQueuedForSweep: boolean;
+}
+
+// How to reverse one task-list action. Snapshots restore the list's shape
+// (which tasks, their order, names, durations, timeline); done-state lives on
+// in its own entries, so a restore keeps each surviving task's current status.
+type UndoEntry =
+  | { kind: 'snapshot'; label: string; tasks: Task[]; total: number }
+  | { kind: 'toggleDone'; label: string; taskId: string }
+  | { kind: 'remove'; label: string; tasks: Task[]; total: number; removed: RemovedTask[] };
+
 // Owns the timer engine (tick/remaining/progress), cross-device sync
 // (load/poll/save/conflict-resolution), and task-list mutations for the
 // active session. Extracted out of SequenceApp so that component can stay
@@ -150,6 +172,19 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // task can be removed mid-session (logged as done but filtered out of the
   // list), so it wouldn't be caught by a simple "isDone" scan at stop time.
   const pendingOneOffBankTaskIdsRef = useRef<Set<string>>(new Set());
+  // The last few task-list actions, newest last, for Ctrl+Z. Cleared whenever
+  // the list is replaced wholesale (start, stop, another device's version),
+  // since restoring a snapshot from before that would clobber it.
+  const undoStackRef = useRef<UndoEntry[]>([]);
+  // Set while an undo runs, so the handlers it calls don't record themselves.
+  const undoingRef = useRef(false);
+  const pushUndo = (entry: UndoEntry) => {
+    if (undoingRef.current) return;
+    undoStackRef.current = [...undoStackRef.current, entry].slice(-UNDO_LIMIT);
+  };
+  const clearUndo = () => {
+    undoStackRef.current = [];
+  };
 
   // Restore task order and keep the default estimator anchored to now.
   useEffect(() => {
@@ -218,6 +253,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // (all three need to do exactly the same "adopt the server's version" thing).
   const applyRemoteSessionData = useCallback((data: any) => {
     const loadedTasks = (data.tasks as Task[]) ?? [];
+    undoStackRef.current = [];
     setTasks(loadedTasks);
     // Coerce any legacy/non-continuous value (e.g. old 'sprint' rows) to 'continuous'.
     setSessionMode('continuous');
@@ -260,6 +296,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   // as a staged session and undoes the stop on the device that issued it.
   const applyRemoteSessionEnded = useCallback(() => {
     sessionEpochRef.current += 1;
+    undoStackRef.current = [];
     setSessionState('idle');
     setSessionStartTime(null);
     setPausedElapsed(0);
@@ -686,6 +723,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     }
     soundPlayedRef.current = new Set();
     sessionSavedToDbRef.current = false;
+    clearUndo();
     pendingOneOffBankTaskIdsRef.current.clear();
     pendingLogRef.current.clear();
     pendingAdvanceRef.current.clear();
@@ -926,6 +964,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     // them can re-save a 'running' snapshot after the row is gone.
     sessionEpochRef.current += 1;
     cancelPendingSaves();
+    clearUndo();
 
     // On stop, filter out done tasks so only unfinished ones remain.
     const remaining = recalculateCumulativeTimes(
@@ -964,6 +1003,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const idx = (tasks ?? []).findIndex((t: Task) => t?.id === taskId);
     if (idx < 0) return;
     const task = tasks[idx];
+    pushUndo({ kind: 'toggleDone', label: task.isDone ? 'Mark not done' : 'Mark done', taskId });
 
     if (task?.isDone) {
       // Un-marking: retract the log entry we created (if any), so a later
@@ -1065,6 +1105,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   const handleAddTask = (name: string, durationSeconds: number, position: 'top' | 'bottom' = 'bottom', color: TaskColorId = 'orange') => {
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
+    pushUndo(snapshot('Add task'));
 
     setTasks((prev: Task[]) => {
       const list = prev ?? [];
@@ -1130,6 +1171,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
   const handleAddFromBank = (picked: PickedBankTask[], options?: { silent?: boolean }) => {
     if (picked.length === 0) return;
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
+    pushUndo(snapshot(picked.length === 1 ? 'Add from bank' : `Add ${picked.length} tasks from bank`));
 
     setTasks((prev: Task[]) => {
       const list = prev ?? [];
@@ -1197,6 +1239,9 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     // Carry that reserved time through undo, including multiple queued undos.
     const trailingReservedSeconds = Math.max(0,
       sessionTotalSeconds - (tasks[tasks.length - 1]?.cumulativeSeconds ?? 0));
+    if (tasks.some((task: Task) => task.bankTaskId === bankTaskId && !task.isDone)) {
+      pushUndo(snapshot('Remove bank task'));
+    }
     setTasks((previous: Task[]) => {
       const matches = (task: Task) => task.bankTaskId === bankTaskId && !task.isDone;
       let index = previous.length - 1;
@@ -1232,12 +1277,16 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
     // In continuous mode during an active session, treat delete as "mark done" and remove from list
     if (isActive) {
+      if (!deletedTask) return;
       const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
+      const wasQueuedForSweep = !!deletedTask.bankTaskId && pendingOneOffBankTaskIdsRef.current.has(deletedTask.bankTaskId);
+      let logged: Promise<Record<string, string>> | null = null;
+      let advanced: Promise<boolean> | null = null;
       setTasks(filtered);
       saveSessionToDb(filtered);
       // Log outside the updater — this creates a DB row, so it must fire exactly once.
-      if (deletedTask && !deletedTask.isDone) {
-        logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
+      if (!deletedTask.isDone) {
+        logged = logCompletedTasks([{ ...deletedTask, isDone: true, doneAt: Date.now() }]);
         // The remove buttons are icon-only, so say what just happened.
         toast.success('Task logged as completed');
       }
@@ -1252,14 +1301,29 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         // cursor advances here too — unless it was already marked done, in
         // which case the advance fired in handleMarkDone.
         if (!deletedTask.isDone) {
-          stepGoalForBankTask(deletedTask.bankTaskId, 'advance');
+          advanced = stepGoalForBankTask(deletedTask.bankTaskId, 'advance');
         }
       }
+      pushUndo({
+        kind: 'remove',
+        label: 'Remove task',
+        tasks,
+        total: sessionTotalSeconds,
+        removed: [{
+          taskId,
+          bankTaskId: deletedTask.bankTaskId ?? null,
+          wasDone: deletedTask.isDone,
+          logged,
+          advanced,
+          wasQueuedForSweep,
+        }],
+      });
       return;
     }
 
     // Idle: actually remove the task and recalculate.
     // Persisted regardless of isActive so a staged pre-session list survives a refresh.
+    if (deletedTask) pushUndo(snapshot('Delete task'));
     const filtered = (tasks ?? []).filter((t: Task) => t?.id !== taskId);
     const updated = recalculateCumulativeTimes(filtered);
     setTasks(updated);
@@ -1274,30 +1338,45 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const currentTasks = (tasks ?? []).filter((t: Task) => t?.id);
 
     if (isActive) {
+      const queuedBefore = new Set(pendingOneOffBankTaskIdsRef.current);
       setTasks([]);
       saveSessionToDb([]);
 
       // Log every task that wasn't already marked done as completed.
       const notDone = currentTasks.filter((t: Task) => !t.isDone);
-      if (notDone.length > 0) {
-        logCompletedTasks(notDone.map((t: Task) => ({ ...t, isDone: true, doneAt: Date.now() })));
-      }
+      const logged = notDone.length > 0
+        ? logCompletedTasks(notDone.map((t: Task) => ({ ...t, isDone: true, doneAt: Date.now() })))
+        : null;
 
       // Queue bank task ids for the session-end sweep and soft-delete one-offs
       // immediately, mirroring handleDeleteTask. Goals advance only for tasks
       // that weren't already done (done ones advanced in handleMarkDone).
-      currentTasks.forEach((t: Task) => {
-        if (!t.bankTaskId) return;
-        pendingOneOffBankTaskIdsRef.current.add(t.bankTaskId);
-        setOneOffChecked([t.bankTaskId], true);
-        if (!t.isDone) {
-          stepGoalForBankTask(t.bankTaskId, 'advance');
+      const removed: RemovedTask[] = currentTasks.map((t: Task) => {
+        let advanced: Promise<boolean> | null = null;
+        if (t.bankTaskId) {
+          pendingOneOffBankTaskIdsRef.current.add(t.bankTaskId);
+          setOneOffChecked([t.bankTaskId], true);
+          if (!t.isDone) {
+            advanced = stepGoalForBankTask(t.bankTaskId, 'advance');
+          }
         }
+        return {
+          taskId: t.id,
+          bankTaskId: t.bankTaskId ?? null,
+          wasDone: t.isDone,
+          logged: t.isDone ? null : logged,
+          advanced,
+          wasQueuedForSweep: !!t.bankTaskId && queuedBefore.has(t.bankTaskId),
+        };
       });
+      if (removed.length > 0) {
+        pushUndo({ kind: 'remove', label: 'Clear all', tasks, total: sessionTotalSeconds, removed });
+      }
       return;
     }
 
     // Idle: clear the list and reset the total.
+    if (currentTasks.length > 0) pushUndo(snapshot('Clear all'));
     setTasks([]);
     setSessionTotalSeconds(0);
     saveSessionToDb([]);
@@ -1305,6 +1384,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   const handleEditTask = (taskId: string, name: string, durationSeconds: number, color?: TaskColorId) => {
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
+    pushUndo(snapshot('Edit task'));
 
     setTasks((prev: Task[]) => {
       const list = prev ?? [];
@@ -1356,6 +1436,7 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   const handleReorder = (newTasks: Task[]) => {
     const isActiveContinuous = sessionState !== 'idle' && sessionMode === 'continuous';
+    pushUndo(snapshot('Reorder'));
 
     if (isActiveContinuous) {
       // CONTINUOUS MODE: Preserve sessionTotalSeconds envelope
@@ -1394,6 +1475,70 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     saveSessionToDb(updated, undefined, undefined, undefined, undefined, newTotal);
   };
 
+  // The list as it is now, to put back on undo.
+  const snapshot = (label: string): UndoEntry => ({ kind: 'snapshot', label, tasks, total: sessionTotalSeconds });
+
+  // Puts a snapshot's list back. Tasks still in the list keep their current
+  // done-state and log/goal ids: those changed through their own undo entries
+  // or async answers, and rolling them back here would desync the server.
+  const restoreTasks = (saved: Task[], total: number) => {
+    const live = new Map((tasks ?? []).map((t: Task) => [t.id, t]));
+    const restored = saved.map((t: Task) => {
+      const now = live.get(t.id);
+      return now
+        ? { ...t, isDone: now.isDone, doneAt: now.doneAt, bonusSeconds: now.bonusSeconds, completionLogId: now.completionLogId, goalAdvanced: now.goalAdvanced }
+        : t;
+    });
+    rearmChimes(restored);
+    setTasks(restored);
+    setSessionTotalSeconds(total);
+    saveSessionToDbImmediate(restored, total);
+  };
+
+  // Removing a task mid-session completed it; undoing that takes back the
+  // log entry, the bank check-off and the goal step it made.
+  const reverseRemoval = (removed: RemovedTask[]) => {
+    removed.forEach((r) => {
+      if (r.bankTaskId && !r.wasQueuedForSweep) pendingOneOffBankTaskIdsRef.current.delete(r.bankTaskId);
+      if (r.wasDone) return;
+      r.logged?.then((idMap) => {
+        const logId = idMap[r.taskId];
+        if (logId) retractCompletionLog(logId);
+      });
+      if (r.bankTaskId) {
+        const bankTaskId = r.bankTaskId;
+        setOneOffChecked([bankTaskId], false);
+        r.advanced?.then((moved) => {
+          if (moved) stepGoalForBankTask(bankTaskId, 'retreat');
+        });
+      }
+    });
+  };
+
+  const handleUndo = () => {
+    const entry = undoStackRef.current.pop();
+    if (!entry) {
+      toast('Nothing to undo', { id: 'undo' });
+      return;
+    }
+    undoingRef.current = true;
+    try {
+      if (entry.kind === 'toggleDone') {
+        if (!(tasks ?? []).some((t: Task) => t.id === entry.taskId)) {
+          toast("Couldn't undo — that task is no longer in the list", { id: 'undo' });
+          return;
+        }
+        handleMarkDone(entry.taskId);
+      } else {
+        restoreTasks(entry.tasks, entry.total);
+        if (entry.kind === 'remove') reverseRemoval(entry.removed);
+      }
+    } finally {
+      undoingRef.current = false;
+    }
+    toast(`Undid: ${entry.label}`, { id: 'undo' });
+  };
+
   const isSession = sessionState === 'running' || sessionState === 'paused';
 
   return {
@@ -1423,5 +1568,6 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     handleClearAll,
     handleEditTask,
     handleReorder,
+    handleUndo,
   };
 }
