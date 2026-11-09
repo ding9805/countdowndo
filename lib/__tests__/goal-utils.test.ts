@@ -183,6 +183,15 @@ describe('goalLeadDays', () => {
   test('an overdue goal leads by the days since it fell behind', () => {
     expect(goalLeadDays(scheduled(51), new Date(2026, 10, 20))).toBe(-28);
   });
+
+  test('fast-forwarding with no progress uses up the lead a day at a time', () => {
+    const goal = scheduled(51);
+    for (const offset of [1, 7, 12, 13, 18]) {
+      const then = addDays(today, offset);
+      expect(goalLeadDays(goal, then)).toBe(12 - offset);
+      expect(paceStatus(goal, then).status === 'behind').toBe(12 - offset < 0);
+    }
+  });
 });
 
 describe('overallLeadDays', () => {

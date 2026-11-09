@@ -56,7 +56,7 @@ export function DateFastForwarder({ goals, today }: { goals: Goal[]; today: Date
   const [offset, setOffset] = useState(0);
   const active = useMemo(() => goals.filter((g) => !isGoalComplete(g)), [goals]);
   const date = addDays(today, offset);
-  const overall = overallLeadDays(active, today);
+  const overall = overallLeadDays(active, date);
   const behindThen = active.filter((g) => paceStatus(g, date).status === 'behind').length;
   const step = (days: number) => setOffset((o) => Math.max(0, o + days));
 
@@ -100,12 +100,15 @@ export function DateFastForwarder({ goals, today }: { goals: Goal[]; today: Date
             )}
           </div>
           <ul className="mt-3 space-y-1.5">
-            {active.map((g) => (
-              <GoalRow key={g.id} goal={g}>
-                <span className={`shrink-0 ${leadTone(goalLeadDays(g, today))}`}>{formatLead(goalLeadDays(g, today))}</span>
-                <PaceBadge pace={paceStatus(g, date)} unit={g.unit} />
-              </GoalRow>
-            ))}
+            {active.map((g) => {
+              const lead = goalLeadDays(g, date);
+              return (
+                <GoalRow key={g.id} goal={g}>
+                  <span className={`shrink-0 ${leadTone(lead)}`}>{formatLead(lead)}</span>
+                  <PaceBadge pace={paceStatus(g, date)} unit={g.unit} />
+                </GoalRow>
+              );
+            })}
           </ul>
         </>
       )}
