@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask } from '@/lib/types';
+import { Task, SessionState, SessionMode, TaskOrder, TaskColorId, PickedBankTask, MAX_COMPLETION_LOG_BATCH } from '@/lib/types';
 import { addTaskMidSession, generateId, recalculateCumulativeTimes, recalculateCumulativeTimesWithEnvelope } from '@/lib/timer-utils';
 import { playTimerSound, unlockTimerSound, TimerChime } from '@/lib/use-timer-sound';
 import { celebrate } from '@/lib/celebrate';
@@ -48,6 +48,23 @@ interface SaveOverrides {
   sessionTotalSeconds?: number;
 }
 
+// Postgres stores tasks as JSONB, which reorders object keys, so a row read
+// back from the server never stringifies like the payload that wrote it.
+// Comparing with sorted keys makes the two match when their values do.
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .filter((key) => record[key] !== undefined)
+        .sort()
+        .map((key) => [key, canonical(record[key])])
+    );
+  }
+  return value;
+}
+
 function syncKey(p: {
   tasks: unknown;
   sessionState: unknown;
@@ -56,14 +73,14 @@ function syncKey(p: {
   sessionMode: unknown;
   sessionTotalSeconds?: unknown;
 }): string {
-  return JSON.stringify({
+  return JSON.stringify(canonical({
     tasks: p.tasks,
     sessionState: p.sessionState,
     sessionStartMs: p.sessionStartMs,
     pausedElapsed: p.pausedElapsed,
     sessionMode: p.sessionMode,
     sessionTotalSeconds: p.sessionTotalSeconds ?? 0,
-  });
+  }));
 }
 
 const UNDO_LIMIT = 5;
@@ -450,6 +467,23 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           const latest = conflictBody?.latest ?? null;
           if (!conflictBody?.conflict) {
             failed = true;
+          } else if (latest && syncKey(latest) === syncKey(payload)) {
+            // Another device saved this same session first — typically both
+            // chimed for the same deadline and saved which chimes have played.
+            // Nothing here is stale, so there's nothing to adopt or drop: take
+            // its version, merge the chimes, and re-send only if this device
+            // has played one the other hasn't recorded.
+            const remotePlayed = new Set<string>((latest.soundPlayed as string[]) ?? []);
+            remotePlayed.forEach((id) => soundPlayedRef.current.add(id));
+            lastKnownUpdatedAtRef.current = latest.updatedAt ?? null;
+            lastSyncRef.current = syncKey(latest);
+            sessionSavedToDbRef.current = true;
+            toast.dismiss('session-save-error');
+            const unrecorded = payload.soundPlayed.some((id) => !remotePlayed.has(id));
+            if (unrecorded && !queuedPayloadRef.current && !saveTimeoutRef.current) {
+              queuedPayloadRef.current = { ...payload, soundPlayed: Array.from(soundPlayedRef.current) };
+              saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+            }
           } else if (latest || (sessionSavedToDbRef.current && payload.sessionState !== 'idle')) {
             // Another device/tab saved since we last synced (`latest`), or
             // stopped the session this device was in and deleted its row —
@@ -781,21 +815,37 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     const idMap: Record<string, string> = {};
 
     if (isLoggedIn) {
-      try {
-        const res = await fetch('/api/completion-log', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ tasks: payload }),
-        });
-        if (res.ok) {
+      // The API takes at most MAX_COMPLETION_LOG_BATCH entries per request,
+      // and Clear all can complete up to a whole session's worth at once.
+      let failedCount = 0;
+      for (let start = 0; start < payload.length; start += MAX_COMPLETION_LOG_BATCH) {
+        const batch = payload.slice(start, start + MAX_COMPLETION_LOG_BATCH);
+        try {
+          const res = await fetch('/api/completion-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tasks: batch }),
+          });
+          if (!res.ok) throw new Error(`Log completions failed with ${res.status}`);
           const data = await res.json();
           (data.logs ?? []).forEach((log: any, i: number) => {
-            const taskId = completedTasks[i]?.id;
+            const taskId = completedTasks[start + i]?.id;
             if (taskId && log?.id) idMap[taskId] = log.id;
           });
+        } catch (e) {
+          console.error('Failed to log completions:', e);
+          failedCount += batch.length;
         }
-      } catch (e) {
-        console.error('Failed to log completions:', e);
+      }
+      // Not retried: a request that timed out may still have been written,
+      // and a resend would then log the work twice.
+      if (failedCount > 0) {
+        toast.error(
+          failedCount === 1
+            ? "Couldn't add that task to your history"
+            : `Couldn't add ${failedCount} tasks to your history`,
+          { id: 'completion-log-error' }
+        );
       }
     } else {
       // Guest: save to localStorage

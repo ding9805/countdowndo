@@ -17,7 +17,10 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     const id = params?.id;
     if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-    const existing = await prisma.bankTask.findFirst({ where: { id, userId } });
+    const existing = await prisma.bankTask.findFirst({
+      where: { id, userId },
+      include: { goal: { select: { id: true } } },
+    });
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const body = await req.json();
@@ -26,6 +29,16 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
       return NextResponse.json({ error: formatZodError(parsed.error) }, { status: 400 });
     }
     const { name, durationSeconds, color, tags, isOneOff, dueDate } = parsed.data;
+
+    // A goal's task is reused for every interval. As a one-off, completing
+    // it in a session would hide it and Stop would delete it, leaving the
+    // goal without a task.
+    if (isOneOff && existing.goal) {
+      return NextResponse.json(
+        { error: "A goal's task can't be one-off — it's reused for each interval of the goal" },
+        { status: 400 }
+      );
+    }
 
     const updateData: any = {};
     if (name !== undefined) updateData.name = name;

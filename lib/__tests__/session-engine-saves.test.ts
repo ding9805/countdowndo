@@ -182,6 +182,7 @@ let heldMethods = new Set<string>();
 let heldSessionReplies: (() => void)[] = [];
 let failingGets = 0;
 let failingDeletes = 0;
+let failingLogs = 0;
 // Whether a goal advance moves its goal (it doesn't once the goal is
 // complete), and whether /api/goals/step replies are held for a test to
 // release from heldGoalStepReplies.
@@ -228,8 +229,23 @@ function handleSessionRequest(method: string, body: any, url: string) {
   if ((sessionRow?.updatedAt ?? null) !== (lastKnownUpdatedAt ?? null)) {
     return reply(409, { error: 'Session was updated elsewhere', conflict: true, latest: sessionRow });
   }
-  sessionRow = { ...data, updatedAt: nextUpdatedAt() };
+  sessionRow = { ...data, tasks: asJsonb(data.tasks), updatedAt: nextUpdatedAt() };
   return reply(200, sessionRow);
+}
+
+// Postgres stores tasks as JSONB, which hands objects back with their keys
+// reordered (shortest first). Modelled so a row read back never stringifies
+// the way the payload that wrote it did.
+function asJsonb(value: any): any {
+  if (Array.isArray(value)) return value.map(asJsonb);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.keys(value)
+        .sort((a, b) => a.length - b.length || (a < b ? -1 : a > b ? 1 : 0))
+        .map((key) => [key, asJsonb(value[key])])
+    );
+  }
+  return value;
 }
 
 const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
@@ -252,9 +268,16 @@ const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
     return response;
   }
   if (url === '/api/completion-log' && method === 'POST') {
+    if (failingLogs > 0) {
+      failingLogs -= 1;
+      return reply(500, { error: 'Internal server error' });
+    }
     // Held open to model a slow request; each test decides when it answers.
     return new Promise<ReturnType<typeof reply>>((resolve) => {
-      heldLogReplies.push((logId) => resolve(reply(200, { count: 1, logs: [{ id: logId }] })));
+      heldLogReplies.push((logId) => resolve(reply(200, {
+        count: body.tasks.length,
+        logs: body.tasks.map((_: unknown, i: number) => ({ id: i === 0 ? logId : `${logId}-${i}` })),
+      })));
     });
   }
   return reply(200, {});
@@ -351,6 +374,7 @@ beforeEach(() => {
   heldSessionReplies = [];
   failingGets = 0;
   failingDeletes = 0;
+  failingLogs = 0;
   advanceMovesGoal = true;
   holdGoalSteps = false;
   heldGoalStepReplies = [];
@@ -632,6 +656,78 @@ describe('un-marking a goal task', () => {
 
     expect(otherDevice.current.tasks[0].isDone).toBe(false);
     expect(goalSteps()).toEqual(['advance']);
+  });
+});
+
+describe('a save that comes back from the server unchanged', () => {
+  test('a poll of it keeps the last action undoable', async () => {
+    const engine = await startRunningSession();
+    engine.current.handleEditTask(engine.current.tasks[0].id, 'Write summary', 600);
+    await advance(1000); // saved
+    await advance(4000); // a poll reads it back, keys reordered by JSONB
+
+    engine.current.handleUndo();
+    await flushMicrotasks();
+
+    expect(engine.current.tasks[0].name).toBe('Write report');
+  });
+
+  test('another device saving the same chime first is not a conflict', async () => {
+    const engine = await startRunningSession({ alarmEnabled: true });
+    const taskId = engine.current.tasks[0].id;
+    engine.current.handleEditTask(taskId, 'Write summary', 600);
+    await advance(1000);
+
+    // Polls stop answering, so this device doesn't learn of the other's save
+    // before its own chime save goes out.
+    heldMethods.add('GET');
+    await advance(8 * 60_000);
+    sessionRow = { ...sessionRow, soundPlayed: [taskId], updatedAt: nextUpdatedAt() };
+    (toast.info as jest.Mock).mockClear();
+    const postsBefore = sessionPosts().length;
+
+    await advance(2 * 60_000 + 2000); // past the deadline; chimes and saves
+    expect(playTimerSound).toHaveBeenCalledTimes(1);
+    expect(sessionPosts()).toHaveLength(postsBefore + 1); // answered 409, not resent
+    expect(toast.info).not.toHaveBeenCalled();
+
+    // Still in step with the server: the next edit saves, and undo still has
+    // the edit from before the conflict.
+    engine.current.handleEditTask(taskId, 'Write abstract', 600);
+    await advance(1000);
+    expect(sessionRow.tasks[0].name).toBe('Write abstract');
+    engine.current.handleUndo();
+    engine.current.handleUndo();
+    await flushMicrotasks();
+    expect(engine.current.tasks[0].name).toBe('Write report');
+  });
+});
+
+describe('logging completions', () => {
+  test('Clear all sends more than one request\'s worth in batches of 100', async () => {
+    const tasks = Array.from({ length: 150 }, (_, i) => [`Task ${i}`, 60] as [string, number]);
+    const engine = await startRunningSession({ tasks });
+
+    engine.current.handleClearAll();
+    await flushMicrotasks();
+    const logPosts = () => sentRequests.filter((r) => r.url === '/api/completion-log' && r.method === 'POST');
+    expect(logPosts().map((r) => r.body.tasks.length)).toEqual([100]);
+
+    heldLogReplies.shift()!('log-a');
+    await flushMicrotasks();
+    expect(logPosts().map((r) => r.body.tasks.length)).toEqual([100, 50]);
+    expect(logPosts()[1].body.tasks[0].name).toBe('Task 100');
+  });
+
+  test('a failed request says the task is missing from history', async () => {
+    const engine = await startRunningSession();
+    (toast.error as jest.Mock).mockClear();
+    failingLogs = 1;
+
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await flushMicrotasks();
+
+    expect(toast.error).toHaveBeenCalledWith("Couldn't add that task to your history", { id: 'completion-log-error' });
   });
 });
 

@@ -56,6 +56,7 @@ describe('POST /api/task-bank/complete-one-offs', () => {
       where: {
         userId: 'user-1',
         isOneOff: true,
+        goal: { is: null },
         OR: [{ id: { in: ['a', 'b', 'c'] } }, { completedAt: { not: null } }],
       },
     });
@@ -71,6 +72,7 @@ describe('POST /api/task-bank/complete-one-offs', () => {
       where: {
         userId: 'user-1',
         isOneOff: true,
+        goal: { is: null },
         OR: [{ completedAt: { not: null } }],
       },
     });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { TASK_COLORS } from '@/lib/types';
+import { TASK_COLORS, MAX_COMPLETION_LOG_BATCH } from '@/lib/types';
 import { MAX_GOAL_INTERVALS } from '@/lib/goal-utils';
 
 // Shared validation for the state-bearing APIs (active-session, completion-log,
@@ -13,7 +13,6 @@ export const taskColorSchema = z.enum(TASK_COLOR_IDS);
 const MAX_NAME_LENGTH = 200;
 const MAX_TASKS_PER_SESSION = 500;
 const MAX_SOUND_PLAYED = 500;
-const MAX_COMPLETION_LOG_BATCH = 100;
 const MAX_TAGS = 20;
 const MAX_TAG_LENGTH = 50;
 const MAX_DURATION_SECONDS = 24 * 60 * 60; // 24h ceiling — generous, but not unbounded

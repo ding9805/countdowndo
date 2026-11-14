@@ -9,6 +9,10 @@ export const TASK_COLORS = [
 
 export type TaskColorId = typeof TASK_COLORS[number]['id'];
 
+// Most completion-log entries one POST /api/completion-log may carry. Lives
+// here rather than in lib/schemas so the client can use it without bundling zod.
+export const MAX_COMPLETION_LOG_BATCH = 100;
+
 export interface Task {
   id: string;
   name: string;

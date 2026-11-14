@@ -46,7 +46,7 @@ describe('POST /api/task-bank/check-one-offs', () => {
     expect(await res.json()).toEqual({ count: 1 });
 
     const arg = updateMany.mock.calls[0][0];
-    expect(arg.where).toEqual({ id: { in: ['a', 'b'] }, userId: 'user-1', isOneOff: true });
+    expect(arg.where).toEqual({ id: { in: ['a', 'b'] }, userId: 'user-1', isOneOff: true, goal: { is: null } });
     expect(arg.data.completedAt).toBeInstanceOf(Date);
   });
 

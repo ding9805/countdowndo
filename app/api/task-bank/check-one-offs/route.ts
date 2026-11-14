@@ -29,7 +29,9 @@ export async function POST(req: NextRequest) {
 
     const { count } = done
       ? await prisma.bankTask.updateMany({
-          where: { id: { in: bankTaskIds }, userId, isOneOff: true },
+          // A goal's task is never consumed, even if flagged one-off before
+          // the bank-task PUT started refusing that.
+          where: { id: { in: bankTaskIds }, userId, isOneOff: true, goal: { is: null } },
           data: { completedAt: new Date() },
         })
       : // No isOneOff filter on restore: if the flag was toggled off while the

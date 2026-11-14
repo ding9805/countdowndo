@@ -32,6 +32,9 @@ export async function POST(req: NextRequest) {
       where: {
         userId,
         isOneOff: true,
+        // A goal's task is never consumed, even if flagged one-off before the
+        // bank-task PUT started refusing that; the restore below unhides it.
+        goal: { is: null },
         OR: [
           ...(bankTaskIds.length > 0 ? [{ id: { in: bankTaskIds } }] : []),
           { completedAt: { not: null } },
