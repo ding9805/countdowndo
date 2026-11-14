@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef } from 'react';
+import { isComposingKey } from '@/lib/utils';
 import { X } from 'lucide-react';
 
 interface TagInputProps {
@@ -49,6 +50,7 @@ export function TagInput({ tags, onChange, existingTags, inputValue, onInputChan
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingKey(e)) return;
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
       commitTag(inputValue);

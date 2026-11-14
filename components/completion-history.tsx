@@ -155,6 +155,8 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
         });
         if (res.ok) {
           setEntries(prev => prev.filter(e => e.id !== id));
+          // Tell the stats dashboard too, which keeps its own copy.
+          window.dispatchEvent(new Event('completion-log-updated'));
         }
       } catch (e) {
         console.error('Failed to delete completion entry:', e);
@@ -164,6 +166,8 @@ export function CompletionHistory({ isLoggedIn }: { isLoggedIn: boolean }) {
         const updated = entries.filter(e => e.id !== id);
         setEntries(updated);
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        // Guests see the dashboard next to this list, so it has to refresh.
+        window.dispatchEvent(new Event('completion-log-updated'));
       } catch {}
     }
     setDeletingIds(prev => {

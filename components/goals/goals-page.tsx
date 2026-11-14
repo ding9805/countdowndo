@@ -40,7 +40,8 @@ export function GoalsPage() {
   const fetchGoals = useCallback(async () => {
     try {
       const res = await fetch('/api/goals');
-      setGoals(res.ok ? await res.json() : []);
+      // A failed refresh keeps what's on screen rather than blanking it.
+      if (res.ok) setGoals(await res.json());
     } catch (e) {
       console.error('Failed to load goals:', e);
     } finally {

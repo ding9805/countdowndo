@@ -43,12 +43,12 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, onRemove, 
         fetch('/api/task-bank'),
         fetch('/api/goals'),
       ]);
-      setTasks(tasksRes.ok ? await tasksRes.json() : []);
-      setGoals(goalsRes.ok ? await goalsRes.json() : []);
+      // A failed refresh (one fires after every mark-done) keeps what's on
+      // screen rather than blanking the list.
+      if (tasksRes.ok) setTasks(await tasksRes.json());
+      if (goalsRes.ok) setGoals(await goalsRes.json());
     } catch (e) {
       console.error('Failed to load task bank/goals:', e);
-      setTasks([]);
-      setGoals([]);
     }
   }, []);
 

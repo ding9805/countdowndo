@@ -100,8 +100,9 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { id } = await req.json();
-    if (!id) {
+    const body = await req.json().catch(() => null);
+    const id = body?.id;
+    if (typeof id !== 'string' || !id) {
       return NextResponse.json({ error: 'No id provided' }, { status: 400 });
     }
 

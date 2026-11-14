@@ -530,7 +530,7 @@ export function TaskInputPanel({
               style={{ boxShadow: 'var(--shadow-lg)' }}
             >
               <h3 className="font-display text-lg font-semibold text-foreground">Clear all tasks?</h3>
-              <p className="text-sm text-muted-foreground">This will delete all {(tasks?.length ?? 0)} task{(tasks?.length ?? 0) !== 1 ? 's' : ''}. This action cannot be undone.</p>
+              <p className="text-sm text-muted-foreground">This will delete all {(tasks?.length ?? 0)} task{(tasks?.length ?? 0) !== 1 ? 's' : ''}. Press Ctrl+Z (⌘Z on a Mac) to undo.</p>
               <div className="flex gap-3 justify-end">
                 <Button
                   onClick={() => setShowClearConfirm(false)}

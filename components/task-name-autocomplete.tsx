@@ -5,6 +5,7 @@ import { BankTask, Goal, PickedBankTask, Task } from '@/lib/types';
 import { cursorTaskNameOffset, remainingIntervals } from '@/lib/goal-utils';
 import { formatDuration } from '@/lib/timer-utils';
 import { countQueuedBankCopies } from '@/lib/task-bank-utils';
+import { isComposingKey } from '@/lib/utils';
 import { Input } from '@/components/ui/input';
 
 interface TaskNameAutocompleteProps {
@@ -90,6 +91,7 @@ export function TaskNameAutocomplete({
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isComposingKey(event)) return;
     if (event.key === 'Escape') {
       setShowSuggestions(false);
       setActiveSuggestion(-1);

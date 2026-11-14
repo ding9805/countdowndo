@@ -42,8 +42,9 @@ export function TaskBankPage() {
         fetch('/api/task-bank'),
         fetch('/api/task-bank/templates'),
       ]);
-      setTasks(tasksRes.ok ? await tasksRes.json() : []);
-      setTemplates(templatesRes.ok ? await templatesRes.json() : []);
+      // A failed refresh keeps what's on screen rather than blanking it.
+      if (tasksRes.ok) setTasks(await tasksRes.json());
+      if (templatesRes.ok) setTemplates(await templatesRes.json());
     } catch (e) {
       console.error('Failed to load task bank:', e);
     } finally {

@@ -30,6 +30,7 @@ import {
   getTaskColorHex,
 } from '@/lib/types';
 import { formatDuration, formatTime } from '@/lib/timer-utils';
+import { isComposingKey } from '@/lib/utils';
 
 const PAD_TOP = 56;
 const PAD_BOTTOM = 72;
@@ -706,6 +707,7 @@ export function SessionTimeline({
                             maxLength={100}
                             autoFocus
                             onKeyDown={(event) => {
+                              if (isComposingKey(event)) return;
                               if (event.key === 'Enter') saveEdit();
                               if (event.key === 'Escape') cancelEditing();
                             }}

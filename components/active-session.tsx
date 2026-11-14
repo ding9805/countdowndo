@@ -5,6 +5,7 @@ import { Task, PickedBankTask, SessionState, SessionMode, TaskOrder, TaskColorId
 import { TaskNameAutocomplete } from './task-name-autocomplete';
 import { ColorPicker } from './color-picker';
 import { formatTime, formatDuration } from '@/lib/timer-utils';
+import { isComposingKey } from '@/lib/utils';
 import { Pause, Play, Square, Plus, X, GripVertical, Check, ChevronUp, ChevronDown, ChevronsUp, ChevronsDown, Pencil, Infinity, ArrowUpDown, Trash2, Archive } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -466,6 +467,7 @@ export function ActiveSession({
                         maxLength={100}
                         autoFocus
                         onKeyDown={(e: React.KeyboardEvent) => {
+                          if (isComposingKey(e)) return;
                           if (e.key === 'Enter') saveEdit();
                           if (e.key === 'Escape') cancelEditing();
                         }}
@@ -605,7 +607,7 @@ export function ActiveSession({
                 {unfinishedCount > 0 && (
                   <> The {unfinishedCount} not done yet will be <span className="font-medium text-foreground">logged as completed</span>, the same as marking them done: added to your history and counted toward their goals.</>
                 )}
-                {' '}This action cannot be undone.
+                {' '}Press Ctrl+Z (⌘Z on a Mac) to undo.
               </p>
               <div className="flex gap-3 justify-end">
                 <Button

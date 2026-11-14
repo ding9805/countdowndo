@@ -192,7 +192,14 @@ export function SequenceApp() {
       <div className="max-w-[1200px] mx-auto px-6 py-8">
         <div className={`grid grid-cols-1 ${isLoggedIn ? 'lg:grid-cols-[1fr_340px]' : ''} gap-8`}>
           <div>
-            {!isSession ? (
+            {/* Until sign-in status is known the engine runs as a guest and
+                saves nothing, so edits made then would be overwritten by the
+                saved session once it loads. */}
+            {authStatus === 'loading' ? (
+              <div className="py-24 text-center text-sm text-muted-foreground" role="status">
+                Loading…
+              </div>
+            ) : !isSession ? (
               <TaskInputPanel
                 tasks={tasks}
                 sessionMode={sessionMode}

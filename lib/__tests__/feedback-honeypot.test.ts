@@ -54,6 +54,13 @@ describe('the feedback spam trap', () => {
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
+  test('a message that isn\'t text is a bad request, not a server error', async () => {
+    const res = await submit({ category: 'bug', message: 1234567890123 });
+
+    expect(res.status).toBe(400);
+    expect(stored).toEqual([]);
+  });
+
   test('a submission with the hidden field empty is stored and emailed', async () => {
     const res = await submit({ ...feedback, website: '' });
 

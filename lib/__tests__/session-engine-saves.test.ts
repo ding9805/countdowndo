@@ -183,6 +183,8 @@ let heldSessionReplies: (() => void)[] = [];
 let failingGets = 0;
 let failingDeletes = 0;
 let failingLogs = 0;
+// Completion-log entries already deleted, which a retraction gets a 404 for.
+let goneLogIds = new Set<string>();
 // Whether a goal advance moves its goal (it doesn't once the goal is
 // complete), and whether /api/goals/step replies are held for a test to
 // release from heldGoalStepReplies.
@@ -266,6 +268,9 @@ const mockFetch = jest.fn(async (url: string, init: RequestInit = {}) => {
       return new Promise<ReturnType<typeof reply>>((resolve) => heldGoalStepReplies.push(() => resolve(response)));
     }
     return response;
+  }
+  if (url === '/api/completion-log' && method === 'DELETE' && goneLogIds.has(body.id)) {
+    return reply(404, { error: 'Not found' });
   }
   if (url === '/api/completion-log' && method === 'POST') {
     if (failingLogs > 0) {
@@ -375,6 +380,7 @@ beforeEach(() => {
   failingGets = 0;
   failingDeletes = 0;
   failingLogs = 0;
+  goneLogIds = new Set();
   advanceMovesGoal = true;
   holdGoalSteps = false;
   heldGoalStepReplies = [];
@@ -719,6 +725,24 @@ describe('logging completions', () => {
     expect(logPosts()[1].body.tasks[0].name).toBe('Task 100');
   });
 
+  test('un-marking a task whose entry was already deleted from history is not an error', async () => {
+    const engine = await startRunningSession();
+    const taskId = engine.current.tasks[0].id;
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+    heldLogReplies.shift()!('log-1');
+    await flushMicrotasks();
+    goneLogIds.add('log-1'); // deleted from the history panel
+    (toast.error as jest.Mock).mockClear();
+
+    engine.current.handleMarkDone(taskId);
+    await flushMicrotasks();
+
+    const retraction = sentRequests.find((r) => r.url === '/api/completion-log' && r.method === 'DELETE');
+    expect(retraction?.body).toEqual({ id: 'log-1' });
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   test('a failed request says the task is missing from history', async () => {
     const engine = await startRunningSession();
     (toast.error as jest.Mock).mockClear();
@@ -897,6 +921,37 @@ describe('a Stop the server fails to carry out', () => {
     expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3']);
     expect(engine.current.sessionState).toBe('running');
     expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a first Stop doesn\'t end a session started on another device since, and switches to it', async () => {
+    const engine = await startRunningSession();
+    engine.current.handleMarkDone(engine.current.tasks[0].id);
+    await advance(1000);
+    heldMethods.add('GET'); // this device's polls don't see the phone's change
+    sessionRow = otherDeviceSession(); // the phone stopped it, then started another
+
+    engine.current.handleStop();
+    await advance(1000);
+
+    expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3']);
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a Stop still ends the session when another device saved it unchanged meanwhile', async () => {
+    const engine = await startRunningSession();
+    const taskId = engine.current.tasks[0].id;
+    engine.current.handleMarkDone(taskId);
+    await advance(1000);
+    heldMethods.add('GET');
+    sessionRow = { ...sessionRow, soundPlayed: [taskId], updatedAt: nextUpdatedAt() }; // the phone's chime
+
+    engine.current.handleStop();
+    await advance(1000);
+
+    expect(sessionDeletes()).toHaveLength(2);
+    expect(sessionRow).toBeNull();
+    expect(engine.current.sessionState).toBe('idle');
   });
 
   test('a list staged here while it retries replaces the stopped session instead of being deleted', async () => {

@@ -420,11 +420,13 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     let failed = false;
     try {
       if ('deleteSession' in payload) {
-        // A retry only deletes the version this device last saw: by the time
-        // one gets through, the session may have changed on another device,
-        // or been stopped there and a new one started. Knowing no version,
-        // there's no row of this device's left to delete.
-        const version = payload.retry ? lastKnownUpdatedAtRef.current : null;
+        // Only the version this device last saw is deleted: the session may
+        // have changed on another device since, or been stopped there and a
+        // new one started, and a Stop here mustn't end that. A retry knowing
+        // no version has no row of this device's left to delete; a first try
+        // knowing none (never saved, or the load hasn't answered) deletes
+        // whatever is there, as before.
+        const version = lastKnownUpdatedAtRef.current;
         if (payload.retry && !version) {
           toast.dismiss('session-save-error');
           return;
@@ -438,6 +440,15 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           lastKnownUpdatedAtRef.current = null;
           lastSyncRef.current = '';
           toast.dismiss('session-save-error');
+        } else if (conflict?.latest && syncKey(conflict.latest) === lastSyncRef.current) {
+          // Another device saved the session this one stopped without
+          // changing it (a chime it played): still the session being
+          // stopped, so delete that version instead.
+          lastKnownUpdatedAtRef.current = conflict.latest.updatedAt ?? null;
+          if (!queuedPayloadRef.current) {
+            queuedPayloadRef.current = payload;
+            saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
+          }
         } else if (conflict?.latest) {
           // Changed on another device while the Stop couldn't get through:
           // that wins, as it does over a save, along with dropping anything
@@ -983,7 +994,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: completionLogId }),
         });
-        if (!res.ok) throw new Error(`Retract completion log failed with ${res.status}`);
+        // 404: already gone, e.g. deleted from the history panel first.
+        if (!res.ok && res.status !== 404) throw new Error(`Retract completion log failed with ${res.status}`);
       } catch (e) {
         // A silent failure here leaves a stats entry for work the user just
         // un-marked, and re-marking it done logs a second one — so the history

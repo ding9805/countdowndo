@@ -44,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Validate message
-    const trimmedMessage = (message ?? '').trim();
+    const trimmedMessage = typeof message === 'string' ? message.trim() : '';
     if (trimmedMessage.length < MIN_MESSAGE_LENGTH) {
       return NextResponse.json({ error: `Feedback must be at least ${MIN_MESSAGE_LENGTH} characters` }, { status: 400 });
     }
