@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/db';
 import crypto from 'crypto';
+import { waitUntil } from '@vercel/functions';
 import { hashResetToken } from '@/lib/reset-token';
 import { checkAndRecordRateLimit, getClientIp } from '@/lib/rate-limit';
 
@@ -13,21 +14,7 @@ const IP_RATE_LIMIT_SECONDS = (60 * 60) / 5;
 // inbox as harassment, potentially from different IPs each time.
 const EMAIL_RATE_LIMIT_SECONDS = (60 * 60) / 3;
 
-// Every "success" answer waits until at least this long after the request
-// arrived. A real account's answer waits on a DB write and the email send,
-// while an unknown address answers at once — without a common floor, the
-// response time alone says whether an account exists. Comfortably above a
-// normal send; one slower than this still stands out, but rarely.
-const RESPONSE_FLOOR_MS = 1500;
-
-async function successAfterFloor(startedAt: number) {
-  const wait = startedAt + RESPONSE_FLOOR_MS - Date.now();
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  return NextResponse.json({ success: true });
-}
-
 export async function POST(request: NextRequest) {
-  const startedAt = Date.now();
   try {
     const { email } = await request.json();
 
@@ -53,9 +40,23 @@ export async function POST(request: NextRequest) {
     // the "this address already got a reset email recently" case, so a
     // rate-limited real address stays indistinguishable from a fake one.
     if (!user || emailLimit.limited) {
-      return successAfterFloor(startedAt);
+      return NextResponse.json({ success: true });
     }
 
+    // The token write and the email send happen after the answer goes out,
+    // so a real account answers exactly as fast as an unknown address —
+    // otherwise the response time alone would say whether an account exists.
+    // waitUntil keeps the function alive on Vercel until the send finishes.
+    waitUntil(sendResetEmail(user));
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+  }
+}
+
+async function sendResetEmail(user: { id: string; email: string }) {
+  try {
     // Generate a secure random token. Only its hash is stored — the raw
     // value only ever exists in the email we send below.
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -130,10 +131,7 @@ export async function POST(request: NextRequest) {
     } catch (emailError) {
       console.error('Failed to send reset email:', emailError);
     }
-
-    return successAfterFloor(startedAt);
   } catch (error) {
-    console.error('Forgot password error:', error);
-    return NextResponse.json({ error: 'Something went wrong' }, { status: 500 });
+    console.error('Failed to save reset token:', error);
   }
 }

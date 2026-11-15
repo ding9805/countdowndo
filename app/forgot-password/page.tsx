@@ -66,10 +66,10 @@ export default function ForgotPasswordPage() {
               </div>
               <h2 className="text-lg font-semibold text-foreground">Check your email</h2>
               <p className="text-sm text-muted-foreground">
-                If an account exists for <span className="text-foreground font-medium">{email}</span>, we've sent a password reset link. It expires in 1 hour.
+                If an account exists for <span className="text-foreground font-medium">{email}</span>, we&apos;ve sent a password reset link. It expires in 1 hour.
               </p>
               <p className="text-xs text-muted-foreground">
-                Don't see it? Check your spam folder.
+                Don&apos;t see it? Check your spam folder.
               </p>
               <Link href="/login">
                 <Button variant="outline" className="w-full mt-2 border-primary/40 text-primary hover:bg-primary/10 rounded-xl">
@@ -82,7 +82,7 @@ export default function ForgotPasswordPage() {
             <>
               <h2 className="text-lg font-semibold text-foreground mb-2">Forgot password?</h2>
               <p className="text-sm text-muted-foreground mb-5">
-                Enter your email and we'll send you a link to reset your password.
+                Enter your email and we&apos;ll send you a link to reset your password.
               </p>
 
               <form onSubmit={handleSubmit} className="space-y-4">

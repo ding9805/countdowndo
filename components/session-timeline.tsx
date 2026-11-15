@@ -265,8 +265,9 @@ export function SessionTimeline({
   }, [elapsedSeconds, isLive, tasks]);
 
   useEffect(() => {
+    const timeouts = arrivalTimeouts.current;
     return () => {
-      arrivalTimeouts.current.forEach((timeout) => clearTimeout(timeout));
+      timeouts.forEach((timeout) => clearTimeout(timeout));
     };
   }, []);
 

@@ -294,7 +294,7 @@ export function TaskBankPage() {
               <Archive className="w-10 h-10 text-primary mx-auto mb-4" />
               <h2 className="font-display text-lg font-semibold text-foreground mb-2">Sign in to use the Task Bank</h2>
               <p className="text-sm text-muted-foreground mb-6">
-                The Task Bank stores your reusable tasks so they're ready to drop into any session. It requires an account to keep them saved.
+                The Task Bank stores your reusable tasks so they&apos;re ready to drop into any session. It requires an account to keep them saved.
               </p>
               <Link
                 href="/login"

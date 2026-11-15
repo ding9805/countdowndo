@@ -1,10 +1,11 @@
 import { POST } from '@/app/api/auth/forgot-password/route';
 
-// A real account's answer waits on a DB write and the email send; an unknown
-// address's doesn't. Both are held to the same minimum time so the response
-// time doesn't reveal which addresses have accounts.
+// A real account's reset needs a DB write and an email send; an unknown
+// address needs neither. That work runs after the answer goes out, so the
+// response time doesn't reveal which addresses have accounts.
 
 let knownEmails = new Set<string>();
+const deferred: Promise<unknown>[] = [];
 
 jest.mock('@/lib/db', () => ({
   prisma: {
@@ -21,17 +22,26 @@ jest.mock('@/lib/rate-limit', () => ({
   checkAndRecordRateLimit: async () => ({ limited: false, waitSeconds: 0 }),
 }));
 
-const sendEmail = jest.fn(async () => new Response('{}', { status: 200 }));
+jest.mock('@vercel/functions', () => ({
+  waitUntil: (promise: Promise<unknown>) => {
+    deferred.push(promise);
+  },
+}));
+
+// The send never settles until released, so a route that awaited it would
+// never answer.
+let releaseSend: () => void = () => {};
+const sendEmail = jest.fn(
+  () => new Promise<Response>((resolve) => {
+    releaseSend = () => resolve(new Response('{}', { status: 200 }));
+  })
+);
 
 beforeEach(() => {
-  jest.useFakeTimers();
   knownEmails = new Set(['reader@example.com']);
+  deferred.length = 0;
   sendEmail.mockClear();
   global.fetch = sendEmail as unknown as typeof fetch;
-});
-
-afterEach(() => {
-  jest.useRealTimers();
 });
 
 function request(email: string) {
@@ -40,26 +50,21 @@ function request(email: string) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email }),
   });
-  let settled = false;
-  const response = POST(req as any).then((res) => {
-    settled = true;
-    return res;
-  });
-  return { response, isSettled: () => settled };
+  return POST(req as any);
 }
 
 test.each([
   ['an address with an account', 'reader@example.com', 1],
   ['an address without one', 'nobody@example.com', 0],
-])('%s gets its answer after the same minimum time', async (_label, email, emailsSent) => {
-  const { response, isSettled } = request(email);
-
-  await jest.advanceTimersByTimeAsync(1499);
-  expect(isSettled()).toBe(false);
-
-  await jest.advanceTimersByTimeAsync(1);
-  const res = await response;
-  expect(isSettled()).toBe(true);
+])('%s is answered without waiting on the email send', async (_label, email, emailsSent) => {
+  const res = await request(email);
   expect(await res.json()).toEqual({ success: true });
+
+  expect(deferred).toHaveLength(emailsSent);
+  // Let the deferred token write reach the send.
+  await new Promise((resolve) => setImmediate(resolve));
   expect(sendEmail).toHaveBeenCalledTimes(emailsSent);
+
+  releaseSend();
+  await Promise.all(deferred);
 });

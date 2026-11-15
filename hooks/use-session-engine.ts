@@ -556,7 +556,6 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
         saveChainRef.current = saveChainRef.current.then(drainSaveQueue);
       }, SAVE_RETRY_DELAY);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [applyRemoteSessionData, applyRemoteSessionEnded]);
 
   const enqueueSave = useCallback((payload: SessionPayload | SessionDeletion) => {
