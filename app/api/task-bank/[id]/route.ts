@@ -52,7 +52,7 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
     }
 
     const task = await prisma.bankTask.update({ where: { id }, data: updateData });
-    return NextResponse.json(task);
+    return NextResponse.json({ ...task, goalId: existing.goal?.id ?? null });
   } catch (error: any) {
     console.error('PUT /api/task-bank/[id] error:', error);
     return NextResponse.json({ error: 'Failed to update task' }, { status: 500 });

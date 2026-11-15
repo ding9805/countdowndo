@@ -30,6 +30,10 @@ export const playHooraySound = () => {
       oscillator.start(startTime);
       oscillator.stop(startTime + duration);
     });
+
+    // Each Stop makes its own context; browsers cap how many a page can hold
+    // open, so close it once the last note (0.2s stagger + 0.8s) has played.
+    setTimeout(() => { audioContext.close().catch(() => {}); }, (duration + 0.5) * 1000);
   } catch (error) {
     console.error('Failed to play celebration sound:', error);
   }

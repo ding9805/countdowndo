@@ -1,16 +1,19 @@
 import { PUT } from '@/app/api/task-bank/[id]/route';
+import { GET } from '@/app/api/task-bank/route';
 
 // A goal's cursor task is reused for every interval, so it must never become
 // a one-off: completing it would hide it and Stop would delete it.
 
 const findFirst = jest.fn();
 const update = jest.fn();
+const findMany = jest.fn();
 
 jest.mock('@/lib/db', () => ({
   prisma: {
     bankTask: {
       findFirst: (...args: any[]) => findFirst(...args),
       update: (...args: any[]) => update(...args),
+      findMany: (...args: any[]) => findMany(...args),
     },
   },
 }));
@@ -70,4 +73,26 @@ test('lets an ordinary task become one-off', async () => {
 
   expect(res.status).toBe(200);
   expect(update).toHaveBeenCalledWith({ where: { id: 'task-1' }, data: { isOneOff: true } });
+});
+
+test("the bank list says which tasks are a goal's, for the edit form", async () => {
+  findMany.mockResolvedValue([
+    { ...row, goal: { id: 'goal-1' } },
+    { ...row, id: 'task-2', name: 'Laundry', goal: null },
+  ]);
+
+  const res = await GET();
+
+  expect(await res.json()).toEqual([
+    { ...row, goalId: 'goal-1' },
+    { ...row, id: 'task-2', name: 'Laundry', goalId: null },
+  ]);
+});
+
+test("an edit's answer keeps the goal link, so the form still knows", async () => {
+  findFirst.mockResolvedValue({ ...row, goal: { id: 'goal-1' } });
+
+  const res = await put({ durationSeconds: 900 });
+
+  expect(await res.json()).toMatchObject({ id: 'task-1', goalId: 'goal-1' });
 });

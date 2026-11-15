@@ -48,6 +48,9 @@ export interface BankTask {
   // session (hidden from bank views), cleared on uncheck, row hard-deleted at
   // session end. GET /api/task-bank filters these out, so it's rarely seen.
   completedAt?: string | null;
+  // The goal this is the cursor task of, if any. Set by GET /api/task-bank
+  // and the bank-task PUT; a goal's task can't be made one-off.
+  goalId?: string | null;
   createdAt: string;
   updatedAt: string;
 }

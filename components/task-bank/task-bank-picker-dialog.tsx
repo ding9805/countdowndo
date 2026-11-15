@@ -103,8 +103,8 @@ export function TaskBankPickerDialog({ open, onOpenChange, onConfirm, onRemove, 
     if (!task) return;
     const queued = queuedCountsRef.current[id] ?? 0;
     const goal = goalByCursorId[id];
-    // A one-off represents a single unit of work, but a goal's cursor task is
-    // stored as a one-off and still has further interval chunks to hand out.
+    // A one-off represents a single unit of work, so it's added once. (A
+    // goal's cursor task is never one-off; it hands out interval chunks.)
     if (task.isOneOff && !goal && queued > 0) return;
 
     // Repeated adds of a goal's cursor task each get the next interval chunk

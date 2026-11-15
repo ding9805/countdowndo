@@ -21,8 +21,10 @@ export async function GET() {
     const tasks = await prisma.bankTask.findMany({
       where: { userId, completedAt: null },
       orderBy: { createdAt: 'desc' },
+      include: { goal: { select: { id: true } } },
     });
-    return NextResponse.json(tasks ?? []);
+    // goalId lets the edit form leave out the one-off option on a goal's task.
+    return NextResponse.json((tasks ?? []).map(({ goal, ...task }) => ({ ...task, goalId: goal?.id ?? null })));
   } catch (error: any) {
     console.error('GET /api/task-bank error:', error);
     return NextResponse.json([], { status: 500 });

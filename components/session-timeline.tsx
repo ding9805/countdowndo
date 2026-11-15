@@ -326,7 +326,10 @@ export function SessionTimeline({
     const next = [...tasks];
     const [moved] = next.splice(index, 1);
     if (!moved) return;
-    next.splice(targetIndex, 0, moved);
+    // Taking out a done task from above the target shifts the target up one
+    // (as in the card views); otherwise it lands below the next unfinished task.
+    const insertAt = edge === 'top' && index < targetIndex ? targetIndex - 1 : targetIndex;
+    next.splice(insertAt, 0, moved);
     onReorder(next);
   };
 

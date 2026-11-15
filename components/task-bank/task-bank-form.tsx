@@ -47,7 +47,9 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
       setDurationSeconds(initialTask.durationSeconds);
       setColor(initialTask.color);
       setTags(initialTask.tags);
-      setIsOneOff(initialTask.isOneOff);
+      // A goal's task is never one-off (the server refuses it), including
+      // one flagged before that rule, which saving here then clears.
+      setIsOneOff(initialTask.goalId ? false : initialTask.isOneOff);
       setDueDate(initialTask.dueDate ?? '');
     } else {
       setName(DEFAULTS.name);
@@ -105,6 +107,7 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
   // Suffix the checkbox id by mode so the inline form and the edit dialog —
   // which can both be mounted at once — never share a duplicate HTML id.
   const oneOffId = `isOneOff-${mode}${inline ? '-inline' : ''}`;
+  const isGoalTask = mode === 'edit' && !!initialTask?.goalId;
 
   const templateField = mode === 'create' && templates.length > 0 && (
     <div>
@@ -195,20 +198,28 @@ export function TaskBankForm({ open, onOpenChange, mode, initialTask, templates,
         </div>
       </div>
 
-      <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
-        <input
-          type="checkbox"
-          id={oneOffId}
-          checked={isOneOff}
-          onChange={(e) => setIsOneOff(e.target.checked)}
-          className="w-4 h-4 rounded border-border/50 cursor-pointer"
-        />
-        <label htmlFor={oneOffId} className="text-xs text-muted-foreground cursor-pointer flex-1">
-          <span className="font-medium text-foreground">One-off task</span>
+      {isGoalTask ? (
+        <p className="text-xs text-muted-foreground bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
+          <span className="font-medium text-foreground">Goal task</span>
           <br />
-          Delete from bank when completed or removed from session
-        </label>
-      </div>
+          Stays in the bank for each interval of its goal, so it can&apos;t be one-off
+        </p>
+      ) : (
+        <div className="flex items-center gap-3 bg-secondary/30 rounded-lg px-3 py-3 border border-border/40">
+          <input
+            type="checkbox"
+            id={oneOffId}
+            checked={isOneOff}
+            onChange={(e) => setIsOneOff(e.target.checked)}
+            className="w-4 h-4 rounded border-border/50 cursor-pointer"
+          />
+          <label htmlFor={oneOffId} className="text-xs text-muted-foreground cursor-pointer flex-1">
+            <span className="font-medium text-foreground">One-off task</span>
+            <br />
+            Delete from bank when completed or removed from session
+          </label>
+        </div>
+      )}
     </>
   );
 
