@@ -599,6 +599,70 @@ describe('a save the server has no matching version for', () => {
   });
 });
 
+describe('a device on the staged list', () => {
+  const sessionGets = () => sentRequests.filter((r) => r.url === '/api/active-session' && r.method === 'GET');
+
+  test('notices a session started on another device without a reload', async () => {
+    sessionRow = otherDeviceSession('idle');
+    const engine = renderEngine();
+    await flushMicrotasks();
+    expect(engine.current.sessionState).toBe('idle');
+
+    sessionRow = { ...otherDeviceSession('running'), tasks: sessionRow.tasks }; // the phone presses Start
+    await advance(15000);
+
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+    expect(sessionPosts()).toHaveLength(0);
+  });
+
+  test('sees a list changed on another device', async () => {
+    sessionRow = otherDeviceSession('idle');
+    const engine = renderEngine();
+    await flushMicrotasks();
+
+    sessionRow = { ...otherDeviceSession('idle'), tasks: [{ ...sessionRow.tasks[0], id: 'phone-task-2', name: 'Write summary' }] };
+    await advance(15000);
+
+    expect(engine.current.sessionState).toBe('idle');
+    expect(taskNames(engine.current.tasks)).toEqual(['Write summary']);
+  });
+
+  test('stays quiet while hidden, then checks the moment it is shown again', async () => {
+    const engine = renderEngine();
+    await flushMicrotasks();
+    const getsAfterLoad = sessionGets().length;
+
+    mockDocument.visibilityState = 'hidden';
+    mockDocument.dispatchEvent(new Event('visibilitychange'));
+    sessionRow = otherDeviceSession('running');
+    await advance(60000);
+    expect(sessionGets()).toHaveLength(getsAfterLoad);
+    expect(engine.current.sessionState).toBe('idle');
+
+    mockDocument.visibilityState = 'visible';
+    mockDocument.dispatchEvent(new Event('visibilitychange'));
+    await flushMicrotasks();
+
+    expect(engine.current.sessionState).toBe('running');
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3']);
+  });
+
+  test('a poll never overwrites an edit made here that is still waiting to save', async () => {
+    sessionRow = otherDeviceSession('idle');
+    const engine = renderEngine();
+    await flushMicrotasks();
+    await advance(14500);
+
+    engine.current.handleAddTask('Added on laptop', 300);
+    await advance(500); // the idle poll fires while the save is still debounced
+    expect(taskNames(engine.current.tasks)).toEqual(['Read chapter 3', 'Added on laptop']);
+
+    await advance(1000);
+    expect(taskNames(sessionRow.tasks)).toEqual(['Read chapter 3', 'Added on laptop']);
+  });
+});
+
 describe('un-marking a goal task', () => {
   test('rolls the goal back when marking it done moved the goal', async () => {
     const engine = await startGoalSession();

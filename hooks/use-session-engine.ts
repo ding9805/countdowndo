@@ -7,6 +7,10 @@ import { shouldApplyPolledSession } from '@/lib/session-sync';
 import { toast } from 'sonner';
 
 const SYNC_INTERVAL = 3000;
+// A device on the staged list polls less often: it has no timers to keep in
+// step, it only needs to notice a session started or a list changed elsewhere.
+// It also checks the moment the page is shown or focused again.
+const IDLE_SYNC_INTERVAL = 15000;
 const SAVE_DEBOUNCE = 1000;
 // How long to wait before re-sending a save that failed (network error or a
 // non-409 error status). Matches the poll interval so a retry always lands
@@ -244,23 +248,29 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn]);
 
-  // Cross-device sync polling (only if logged in and session active)
+  // Cross-device sync polling. Idle devices poll too, or one left on the
+  // staged list would never notice a session started on another device.
   useEffect(() => {
-    if (isLoggedIn && (sessionState === 'running' || sessionState === 'paused')) {
-      syncIntervalRef.current = setInterval(() => {
-        pollActiveSession();
-      }, SYNC_INTERVAL);
-    } else {
-      if (syncIntervalRef.current) {
-        clearInterval(syncIntervalRef.current);
-        syncIntervalRef.current = null;
-      }
-    }
+    if (!isLoggedIn) return;
+    const live = sessionState === 'running' || sessionState === 'paused';
+    syncIntervalRef.current = setInterval(() => {
+      // A hidden idle page has nothing on screen to keep current; it catches
+      // up when it's shown again.
+      if (!live && document.visibilityState === 'hidden') return;
+      pollActiveSession();
+    }, live ? SYNC_INTERVAL : IDLE_SYNC_INTERVAL);
+    const pollOnReturn = () => {
+      if (document.visibilityState === 'visible') pollActiveSession();
+    };
+    window.addEventListener('focus', pollOnReturn);
+    document.addEventListener('visibilitychange', pollOnReturn);
     return () => {
       if (syncIntervalRef.current) {
         clearInterval(syncIntervalRef.current);
         syncIntervalRef.current = null;
       }
+      window.removeEventListener('focus', pollOnReturn);
+      document.removeEventListener('visibilitychange', pollOnReturn);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoggedIn, sessionState]);
@@ -347,8 +357,8 @@ export function useSessionEngine(isLoggedIn: boolean, alarmEnabled: boolean, chi
 
   // Retried until it gets an answer. Until then this client doesn't know the
   // server's version of the session, so the server only lets its saves create
-  // one, and an idle client never polls — without the retry, a session that
-  // exists wouldn't show up here until the next edit bounced off it.
+  // one — without the retry, a session that exists wouldn't show up here until
+  // the next edit bounced off it or the slow idle poll came round.
   const loadActiveSession = async () => {
     loadRetryTimeoutRef.current = null;
     const seqAtStart = writeSeqRef.current;
